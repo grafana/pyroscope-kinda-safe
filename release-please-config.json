@@ -9,8 +9,14 @@
       "include-component-in-tag": true,
       "skip-github-release": true,
       "extra-files": [
-        "kindasafe/Cargo.toml",
-        "kindasafe_init/Cargo.toml"
+        {
+          "type": "generic",
+          "path": "kindasafe/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "kindasafe_init/Cargo.toml"
+        }
       ]
     }
   },
