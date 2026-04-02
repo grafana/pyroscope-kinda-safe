@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "component": "kindasafe",
+      "release-type": "simple",
+      "changelog-path": "CHANGELOG.md",
+      "include-v-in-tag": false,
+      "include-component-in-tag": true,
+      "skip-github-release": true,
+      "extra-files": [
+        "kindasafe/Cargo.toml",
+        "kindasafe_init/Cargo.toml"
+      ]
+    }
+  },
+  "bootstrap-sha": "7319a905014650a3b69c98198fbeb65640435a1e"
+}
