@@ -1,15 +1,3 @@
-build/
-dist/
-
-.venv/
-.env/
-
+**/target/
 .idea/
-/target/
-**/*.rs.bk
-.cache
 .DS_Store
-
-flamegraph.svg
-perf.data
-perf.data.*

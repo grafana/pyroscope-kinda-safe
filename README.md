@@ -1,22 +1,12 @@
-## Pyroscope Profiler
+# pyroscope-kinda-safe
 
-**Pyroscope Profiler for Rust. Profile your Rust applications.**
+Signal-safe memory reading for x86_64 and aarch64 on Linux.
 
-[![license](https://img.shields.io/badge/license-Apache2.0-blue.svg)](LICENSE) 
-[![Crate](https://img.shields.io/crates/v/pyroscope.svg)](https://crates.io/crates/pyroscope)
+This workspace contains two crates:
 
+- [`kindasafe`](kindasafe/) — core read primitives using naked assembly with crash recovery
+- [`kindasafe_init`](kindasafe_init/) — signal handler initialization
 
-### Major Contributors
+## License
 
-We'd like to give a big thank you to the following contributors who have made significant contributions to this project:
-
-* [Abid Omar](https://github.com/omarabid)
-* [Anatoly Korniltsev](https://github.com/korniltsev)
-* [Bernhard Schuster](https://github.com/drahnr)
-
-
-### License
-
-Pyroscope is distributed under the Apache License (Version 2.0).
-
-See [LICENSE](LICENSE) for details.
+Apache-2.0
