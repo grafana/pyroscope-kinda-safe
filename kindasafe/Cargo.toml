@@ -1,6 +1,6 @@
 [package]
 name = "kindasafe"
-version = "0.1.0" # x-release-please-version
+version = "0.1.1" # x-release-please-version
 edition = "2024"
 description = "Signal-safe memory reading for x86_64 and aarch64 using naked functions and crash recovery"
 license = "Apache-2.0"
