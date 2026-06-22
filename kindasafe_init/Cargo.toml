@@ -12,7 +12,7 @@ readme = "README.md"
 [dependencies]
 kindasafe = { path = "../kindasafe", version = "0.1.1" } # x-release-please-version
 libc = { version = "0.2.182" }
-spin = { version = "0.10.0" }
+spin = { version = "0.12.0" }
 
 [dev-dependencies]
 anyhow = "=1.0.102"
