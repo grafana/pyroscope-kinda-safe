@@ -1,8 +1,33 @@
-use anyhow::anyhow;
-use kindasafe::ReadMemError;
-
-use anyhow::Result;
 use kindasafe::{Ptr, slice, u64};
+use std::fmt;
+
+type TestResult<T = ()> = std::result::Result<T, TestError>;
+
+enum TestError {
+    Init(kindasafe_init::InitError),
+    ReadMem(kindasafe::ReadMemError),
+}
+
+impl fmt::Debug for TestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Init(err) => f.debug_tuple("Init").field(err).finish(),
+            Self::ReadMem(err) => f.debug_tuple("ReadMem").field(err).finish(),
+        }
+    }
+}
+
+impl From<kindasafe_init::InitError> for TestError {
+    fn from(err: kindasafe_init::InitError) -> Self {
+        Self::Init(err)
+    }
+}
+
+impl From<kindasafe::ReadMemError> for TestError {
+    fn from(err: kindasafe::ReadMemError) -> Self {
+        Self::ReadMem(err)
+    }
+}
 
 // On macOS, accessing a PROT_NONE mmap page delivers SIGBUS;
 // on Linux it delivers SIGSEGV.
@@ -12,42 +37,42 @@ const PROT_NONE_SIGNAL: u64 = libc::SIGSEGV as u64;
 const PROT_NONE_SIGNAL: u64 = libc::SIGBUS as u64;
 
 #[test]
-fn test_init() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn test_init() -> TestResult {
+    kindasafe_init::init()?;
+    kindasafe_init::init()?;
     Ok(())
 }
 
 #[test]
-fn u64_aligned() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn u64_aligned() -> TestResult {
+    kindasafe_init::init()?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
     let x_ptr = x.as_ptr() as Ptr;
 
-    let i = u64(x_ptr).map_err(|err| anyhow!("read mem error {err:?}"))?;
+    let i = u64(x_ptr)?;
     assert_eq!(i, 0xefbeaddebebafeca);
     Ok(())
 }
 
 #[test]
-fn u64_unaligned() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn u64_unaligned() -> TestResult {
+    kindasafe_init::init()?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0x00];
     let x_ptr = x.as_ptr() as Ptr + 1;
-    let i = u64(x_ptr).map_err(|err| anyhow!("read mem error {err:?}"))?;
+    let i = u64(x_ptr)?;
     assert_eq!(i, 0xefbeaddebebafe);
     Ok(())
 }
 
 #[test]
-fn u64_sigsegv() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn u64_sigsegv() -> TestResult {
+    kindasafe_init::init()?;
     trigger_sigsegv(|p| {
         assert_eq!(
             u64(p),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
@@ -56,12 +81,12 @@ fn u64_sigsegv() -> Result<(), anyhow::Error> {
 }
 
 #[test]
-fn u64_sigbus() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn u64_sigbus() -> TestResult {
+    kindasafe_init::init()?;
     trigger_sigbus(|p| {
         assert_eq!(
             u64(p),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: libc::SIGBUS as u64
             })
         );
@@ -70,8 +95,8 @@ fn u64_sigbus() -> Result<(), anyhow::Error> {
 }
 
 #[test]
-fn u64_unaligned_page_boundary() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn u64_unaligned_page_boundary() -> TestResult {
+    kindasafe_init::init()?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
         let boundary = ps as u64;
@@ -79,13 +104,13 @@ fn u64_unaligned_page_boundary() -> Result<(), anyhow::Error> {
         assert_eq!(u64(p + boundary - 0x8), Ok(0x6161616161616161));
         assert_eq!(
             u64(p + boundary - 0x7),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
         assert_eq!(
             u64(p + boundary),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
@@ -94,35 +119,35 @@ fn u64_unaligned_page_boundary() -> Result<(), anyhow::Error> {
 }
 
 #[test]
-fn vec_aligned() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn vec_aligned() -> TestResult {
+    kindasafe_init::init()?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
-    slice(&mut buf, x.as_ptr() as Ptr).map_err(|err| anyhow!("read mem error {err:?}"))?;
+    slice(&mut buf, x.as_ptr() as Ptr)?;
     assert_eq!(buf, x.clone());
     Ok(())
 }
 
 #[test]
-fn vec_unaligned() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn vec_unaligned() -> TestResult {
+    kindasafe_init::init()?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0xcc];
     let x_ptr = x.as_ptr() as Ptr + 1;
-    slice(&mut buf[0..7], x_ptr).map_err(|err| anyhow!("read mem error {err:?}"))?;
+    slice(&mut buf[0..7], x_ptr)?;
     let expected: Vec<u8> = vec![0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0];
     assert_eq!(buf, expected);
     Ok(())
 }
 
 #[test]
-fn vec_sigsegv() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn vec_sigsegv() -> TestResult {
+    kindasafe_init::init()?;
     trigger_sigsegv(|p| {
         let mut buf = [0u8; 8];
         assert_eq!(
             slice(&mut buf, p as Ptr),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
@@ -131,14 +156,14 @@ fn vec_sigsegv() -> Result<(), anyhow::Error> {
 }
 
 #[test]
-fn vec_sigbus() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn vec_sigbus() -> TestResult {
+    kindasafe_init::init()?;
     trigger_sigbus(|p| {
         let mut buf = [0u8; 8];
         let res = slice(&mut buf, p as Ptr);
         assert_eq!(
             res,
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: libc::SIGBUS as u64
             })
         );
@@ -146,15 +171,15 @@ fn vec_sigbus() -> Result<(), anyhow::Error> {
     Ok(())
 }
 #[test]
-fn vec_sigsegv_page_boundary() -> Result<(), anyhow::Error> {
-    kindasafe_init::init().map_err(|err| anyhow!("{:?}", err))?;
+fn vec_sigsegv_page_boundary() -> TestResult {
+    kindasafe_init::init()?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
         let boundary = ps as u64;
         let mut buf = [0u8; 16];
         assert_eq!(
             slice(&mut buf, (p + boundary - 8) as Ptr),
-            Err(ReadMemError {
+            Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
