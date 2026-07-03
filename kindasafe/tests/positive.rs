@@ -237,20 +237,27 @@ where
     F: FnMut(u64),
 {
     unsafe {
-        let f = libc::tmpfile();
+        // Not tmpfile(): on macOS it wraps mkstemp/unlink in a process-wide
+        // sigprocmask(SIG_BLOCK, all)/restore pair; concurrent calls race and
+        // can leave every signal permanently blocked, livelocking the fault
+        // tests (github.com/grafana/pyroscope-kinda-safe/issues/36).
+        let mut template = *b"/tmp/kindasafe_sigbus_XXXXXX\0";
+        let f = libc::mkstemp(template.as_mut_ptr() as *mut libc::c_char);
+        assert!(f >= 0, "mkstemp failed");
+        libc::unlink(template.as_ptr() as *const libc::c_char);
         let m = libc::mmap(
             std::ptr::null_mut::<libc::c_void>(),
             4,
             libc::PROT_WRITE,
             libc::MAP_PRIVATE,
-            libc::fileno(f),
+            f,
             0,
         );
         let m = m as *mut i32;
         cb(m as u64);
 
         libc::munmap(m as *mut libc::c_void, 4);
-        libc::fclose(f);
+        libc::close(f);
     };
 }
 
