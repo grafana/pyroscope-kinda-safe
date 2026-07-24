@@ -12,5 +12,5 @@ readme = "README.md"
 [dependencies]
 
 [dev-dependencies]
-libc = "=0.2.186"
+libc = "=0.2.189"
 kindasafe_init = { path = "../kindasafe_init" }
