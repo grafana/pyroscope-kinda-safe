@@ -42,16 +42,14 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let pc = (*ctx).uc_mcontext.gregs[libc::REG_RIP as usize] as usize;
-        for x in kindasafe::crash_points().crash_points {
-            if x.pc == pc {
-                (*ctx).uc_mcontext.gregs[libc::REG_RIP as usize] = (pc + x.skip) as libc::greg_t;
-                let reg_idx = match x.signal_reg {
-                    kindasafe::Reg::Rax => libc::REG_RAX as usize,
-                    kindasafe::Reg::Rdx => libc::REG_RDX as usize,
-                };
-                (*ctx).uc_mcontext.gregs[reg_idx] = sig as u64 as libc::greg_t;
-                return;
-            }
+        if let Some(x) = kindasafe::crash_point(pc) {
+            (*ctx).uc_mcontext.gregs[libc::REG_RIP as usize] = (pc + x.skip) as libc::greg_t;
+            let reg_idx = match x.signal_reg {
+                kindasafe::Reg::Rax => libc::REG_RAX as usize,
+                kindasafe::Reg::Rdx => libc::REG_RDX as usize,
+            };
+            (*ctx).uc_mcontext.gregs[reg_idx] = sig as u64 as libc::greg_t;
+            return;
         }
         fallback(sig, info, data);
     }
@@ -66,15 +64,13 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
         let mctx = (*ctx).uc_mcontext;
         let ss = &mut (*mctx).__ss;
         let pc = ss.__rip as usize;
-        for x in kindasafe::crash_points().crash_points {
-            if x.pc == pc {
-                ss.__rip = (pc + x.skip) as u64;
-                match x.signal_reg {
-                    kindasafe::Reg::Rax => ss.__rax = sig as u64,
-                    kindasafe::Reg::Rdx => ss.__rdx = sig as u64,
-                };
-                return;
-            }
+        if let Some(x) = kindasafe::crash_point(pc) {
+            ss.__rip = (pc + x.skip) as u64;
+            match x.signal_reg {
+                kindasafe::Reg::Rax => ss.__rax = sig as u64,
+                kindasafe::Reg::Rdx => ss.__rdx = sig as u64,
+            };
+            return;
         }
         fallback(sig, info, data);
     }
@@ -87,18 +83,16 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let pc = (*ctx).uc_mcontext.pc as usize;
-        for x in kindasafe::crash_points().crash_points {
-            if x.pc == pc {
-                (*ctx).uc_mcontext.pc = (pc + x.skip) as u64;
-                // libc provides no named constants for aarch64 register indices;
-                // mcontext_t.regs is [u64; 31] where index matches register number.
-                let reg_idx = match x.signal_reg {
-                    kindasafe::Reg::X0 => 0,
-                    kindasafe::Reg::X1 => 1,
-                };
-                (*ctx).uc_mcontext.regs[reg_idx] = sig as u64;
-                return;
-            }
+        if let Some(x) = kindasafe::crash_point(pc) {
+            (*ctx).uc_mcontext.pc = (pc + x.skip) as u64;
+            // libc provides no named constants for aarch64 register indices;
+            // mcontext_t.regs is [u64; 31] where index matches register number.
+            let reg_idx = match x.signal_reg {
+                kindasafe::Reg::X0 => 0,
+                kindasafe::Reg::X1 => 1,
+            };
+            (*ctx).uc_mcontext.regs[reg_idx] = sig as u64;
+            return;
         }
         fallback(sig, info, data);
     }
@@ -112,18 +106,16 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let mctx = (*ctx).uc_mcontext;
         let pc = (*mctx).__ss.__pc as usize;
-        for x in kindasafe::crash_points().crash_points {
-            if x.pc == pc {
-                (*mctx).__ss.__pc = (pc + x.skip) as u64;
-                // libc provides no named constants for aarch64 register indices;
-                // __darwin_arm_thread_state64.__x is [u64; 29] where index matches register number.
-                let reg_idx = match x.signal_reg {
-                    kindasafe::Reg::X0 => 0,
-                    kindasafe::Reg::X1 => 1,
-                };
-                (*mctx).__ss.__x[reg_idx] = sig as u64;
-                return;
-            }
+        if let Some(x) = kindasafe::crash_point(pc) {
+            (*mctx).__ss.__pc = (pc + x.skip) as u64;
+            // libc provides no named constants for aarch64 register indices;
+            // __darwin_arm_thread_state64.__x is [u64; 29] where index matches register number.
+            let reg_idx = match x.signal_reg {
+                kindasafe::Reg::X0 => 0,
+                kindasafe::Reg::X1 => 1,
+            };
+            (*mctx).__ss.__x[reg_idx] = sig as u64;
+            return;
         }
         fallback(sig, info, data);
     }
