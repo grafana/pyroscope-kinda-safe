@@ -112,8 +112,10 @@ pub mod arch {
     ];
     const SLICE_RET: usize = 362;
 
-    // LLVM libc inline_memcpy (llvm-project e7dc4d6, Apache-2.0 WITH LLVM-exception) as compiled
-    // for x86-64 SSE2, plus crash points and the returned signal.
+    // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+    // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception, see LICENSE-LLVM. Covers only asm
+    // of `slice`: LLVM libc inline_memcpy (llvm-project e7dc4d6) compiled for x86-64 SSE2,
+    // modified to add crash points and the returned signal.
     #[unsafe(naked)]
     pub extern "sysv64" fn slice(
         _dst: *const u8, // rdi
@@ -311,8 +313,10 @@ pub mod arch {
     ];
     const SLICE_RET: usize = 108;
 
-    // LLVM libc inline_memcpy (llvm-project e7dc4d6, Apache-2.0 WITH LLVM-exception) as compiled
-    // for aarch64, plus crash points and the returned signal.
+    // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+    // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception, see LICENSE-LLVM. Covers only asm
+    // of `slice`: LLVM libc inline_memcpy (llvm-project e7dc4d6) compiled for aarch64,
+    // modified to add crash points and the returned signal.
     #[unsafe(naked)]
     pub extern "C" fn slice(
         _dst: *const u8, // x0
