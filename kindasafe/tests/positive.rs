@@ -183,14 +183,71 @@ fn vec_sigsegv_page_boundary() -> TestResult {
                 signal: PROT_NONE_SIGNAL
             })
         );
-        assert_eq!(
-            buf,
-            vec![
-                0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                0x0
-            ]
-            .as_slice()
-        );
+    });
+    Ok(())
+}
+
+#[test]
+fn vec_sizes_and_alignments() -> TestResult {
+    kindasafe_init::init()?;
+    let src: Vec<u8> = (0..1200).map(|i| (i * 7 + 1) as u8).collect();
+    for n in 0..=1100 {
+        for off in 0..16 {
+            let mut buf = vec![0u8; n + 32];
+            slice(&mut buf[off..off + n], src.as_ptr() as Ptr + off as Ptr)?;
+            assert_eq!(&buf[off..off + n], &src[off..off + n], "n={n} off={off}");
+            assert!(buf[..off].iter().all(|&b| b == 0), "n={n} off={off}");
+            assert!(buf[off + n..].iter().all(|&b| b == 0), "n={n} off={off}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn vec_sigsegv_page_boundary_all_sizes() -> TestResult {
+    kindasafe_init::init()?;
+    trigger_sigsegv_page_boundary(|p, ps| {
+        let boundary = p + ps as u64;
+        for n in 1..=ps.min(1100) {
+            let mut buf = vec![0u8; n];
+            assert_eq!(slice(&mut buf, boundary - n as u64), Ok(()), "n={n}");
+            assert!(buf.iter().all(|&b| b == 0x61), "n={n}");
+            for over in [
+                1,
+                2,
+                3,
+                4,
+                7,
+                8,
+                15,
+                16,
+                31,
+                32,
+                33,
+                63,
+                64,
+                65,
+                96,
+                97,
+                127,
+                128,
+                129,
+                n - 1,
+                n,
+            ] {
+                if over == 0 || over > n {
+                    continue;
+                }
+                let at = boundary - (n - over) as u64;
+                assert_eq!(
+                    slice(&mut buf, at),
+                    Err(kindasafe::ReadMemError {
+                        signal: PROT_NONE_SIGNAL
+                    }),
+                    "n={n} over={over}"
+                );
+            }
+        }
     });
     Ok(())
 }
@@ -280,4 +337,84 @@ where
 
         libc::munmap(m as *mut libc::c_void, 4);
     };
+}
+
+#[test]
+fn vec_guard_before_start_all_sizes() -> TestResult {
+    kindasafe_init::init()?;
+    let ps = page_size();
+    unsafe {
+        let m = libc::mmap(
+            std::ptr::null_mut::<libc::c_void>(),
+            2 * ps,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANON,
+            -1,
+            0,
+        );
+        assert_ne!(libc::MAP_FAILED, m, "mmap failed");
+        let m = m as usize;
+        assert_eq!(
+            libc::mprotect(m as *mut libc::c_void, ps, libc::PROT_NONE),
+            0
+        );
+        let data = m + ps;
+        for i in 0..ps {
+            *((data + i) as *mut u8) = (i * 13 + 5) as u8;
+        }
+        for n in 1..=ps.min(1100) {
+            for off in 0..16 {
+                let mut buf = vec![0u8; n];
+                slice(&mut buf, (data + off) as Ptr)?;
+                let src = std::slice::from_raw_parts((data + off) as *const u8, n);
+                assert_eq!(buf, src, "n={n} off={off}");
+            }
+        }
+        libc::munmap(m as *mut libc::c_void, 2 * ps);
+    }
+    Ok(())
+}
+
+#[test]
+fn crash_points_are_loads() {
+    for (i, point) in kindasafe::crash_points().crash_points.iter().enumerate() {
+        let at = |off: usize| unsafe { *((point.pc + off) as *const u8) };
+        #[cfg(target_arch = "x86_64")]
+        {
+            let rex = (0x40..=0x4f).contains(&at(0)) as usize;
+            let load = matches!(
+                (at(rex), at(rex + 1)),
+                (0x0f, 0x10) | (0x0f, 0xb6) | (0x0f, 0xb7) | (0x8a, _) | (0x8b, _)
+            );
+            assert!(load, "crash point {i} at {:#x} is not a load", point.pc);
+            assert_eq!(at(point.skip), 0xc3, "crash point {i} does not skip to ret");
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            let word =
+                |off: usize| u32::from_le_bytes([at(off), at(off + 1), at(off + 2), at(off + 3)]);
+            let insn = word(0);
+            let load = (insn >> 27) & 1 == 1 && (insn >> 25) & 1 == 0 && (insn >> 22) & 1 == 1;
+            assert!(
+                load,
+                "crash point {i} at {:#x} is not a load: {insn:#010x}",
+                point.pc
+            );
+            assert_eq!(
+                word(point.skip),
+                0xd65f03c0,
+                "crash point {i} does not skip to ret"
+            );
+        }
+    }
+}
+
+#[test]
+fn crash_point_lookup_matches_table() {
+    for point in kindasafe::crash_points().crash_points.iter() {
+        let found = kindasafe::crash_point(point.pc).expect("crash point not found by pc");
+        assert_eq!(found.skip, point.skip);
+        assert_eq!(found.signal_reg, point.signal_reg);
+        assert!(kindasafe::crash_point(point.pc + 1).is_none());
+    }
 }

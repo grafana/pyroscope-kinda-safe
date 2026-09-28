@@ -27,4 +27,5 @@ match value {
 
 ## License
 
-Apache-2.0
+Apache-2.0 (see `LICENSE`), except the assembly of `slice` in `src/lib.rs`, which is derived from
+LLVM libc's `inline_memcpy` and is Apache-2.0 WITH LLVM-exception (see `LICENSE-LLVM`).

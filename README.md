@@ -9,4 +9,5 @@ This workspace contains two crates:
 
 ## License
 
-Apache-2.0
+Apache-2.0, except the `slice` assembly in `kindasafe/src/lib.rs`, which is derived from LLVM libc
+and is Apache-2.0 WITH LLVM-exception (see [`kindasafe/LICENSE-LLVM`](kindasafe/LICENSE-LLVM)).
