@@ -384,7 +384,7 @@ fn crash_points_are_loads() {
             let rex = (0x40..=0x4f).contains(&at(0)) as usize;
             let load = matches!(
                 (at(rex), at(rex + 1)),
-                (0x0f, 0x10) | (0x0f, 0xb7) | (0x8a, _) | (0x8b, _)
+                (0x0f, 0x10) | (0x0f, 0xb6) | (0x0f, 0xb7) | (0x8a, _) | (0x8b, _)
             );
             assert!(load, "crash point {i} at {:#x} is not a load", point.pc);
             assert_eq!(at(point.skip), 0xc3, "crash point {i} does not skip to ret");

@@ -106,14 +106,14 @@ pub mod arch {
 
     // x86 instructions vary in length, so these are byte offsets read back from the
     // assembled function; the crash_points_are_loads test fails if they drift.
-    const SLICE_LOADS: [usize; 33] = [
-        6, 15, 46, 50, 65, 69, 80, 85, 99, 104, 138, 148, 152, 156, 161, 166, 171, 251, 256, 268,
-        273, 293, 296, 300, 304, 367, 371, 380, 384, 400, 404, 408, 412,
+    const SLICE_LOADS: [usize; 28] = [
+        24, 46, 54, 61, 76, 80, 97, 103, 122, 128, 147, 150, 161, 166, 193, 196, 200, 204, 223,
+        228, 233, 238, 266, 269, 315, 319, 342, 346,
     ];
-    const SLICE_RET: usize = 467;
+    const SLICE_RET: usize = 362;
 
-    // Instruction-for-instruction the forward paths of glibc __memmove_sse2_unaligned,
-    // minus its non-temporal branch, plus crash points.
+    // LLVM libc inline_memcpy (llvm-project e7dc4d6, Apache-2.0 WITH LLVM-exception) as compiled
+    // for x86-64 SSE2, plus crash points and the returned signal.
     #[unsafe(naked)]
     pub extern "sysv64" fn slice(
         _dst: *const u8, // rdi
@@ -121,152 +121,127 @@ pub mod arch {
         _n: u64,         // rdx
     ) -> VecResult {
         core::arch::naked_asm!(
-            "cmp rdx, 16",
-            "jb 20f",
-            "movups xmm0, xmmword ptr [rsi]", // load
+            "cmp rdx, 1",
+            "jle 1f",
+            "cmp rdx, 2",
+            "je 2f",
+            "cmp rdx, 3",
+            "je 3f",
+            "cmp rdx, 4",
+            "jne 4f",
+            "mov eax, dword ptr [rsi]", // load
+            "mov dword ptr [rdi], eax",
+            "xor eax, eax",
+            "ret",
+            "1:",
+            "test rdx, rdx",
+            "je 9f",
+            "cmp rdx, 1",
+            "jne 4f",
+            "movzx eax, byte ptr [rsi]", // load
+            "mov byte ptr [rdi], al",
+            "xor eax, eax",
+            "ret",
+            "3:",
+            "movzx eax, byte ptr [rsi + 2]", // load
+            "mov byte ptr [rdi + 2], al",
+            "2:",
+            "movzx eax, word ptr [rsi]", // load
+            "mov word ptr [rdi], ax",
+            "xor eax, eax",
+            "ret",
+            "4:",
+            "cmp rdx, 7",
+            "ja 5f",
+            "mov eax, dword ptr [rsi]", // load
+            "mov dword ptr [rdi], eax",
+            "mov eax, dword ptr [rsi + rdx - 4]", // load
+            "mov dword ptr [rdi + rdx - 4], eax",
+            "xor eax, eax",
+            "ret",
+            "5:",
+            "cmp rdx, 15",
+            "ja 6f",
+            "mov rax, qword ptr [rsi]", // load
+            "mov qword ptr [rdi], rax",
+            "mov rax, qword ptr [rsi + rdx - 8]", // load
+            "mov qword ptr [rdi + rdx - 8], rax",
+            "xor eax, eax",
+            "ret",
+            "6:",
             "cmp rdx, 32",
-            "ja 30f",
-            "movups xmm1, xmmword ptr [rsi + rdx - 16]", // load, 16..=32
+            "ja 7f",
+            "movups xmm0, xmmword ptr [rsi]", // load
             "movups xmmword ptr [rdi], xmm0",
-            "movups xmmword ptr [rdi + rdx - 16], xmm1",
+            "movups xmm0, xmmword ptr [rsi + rdx - 16]", // load
+            "movups xmmword ptr [rdi + rdx - 16], xmm0",
             "xor eax, eax",
             "ret",
-            "20:",
-            "cmp edx, 8",
-            "jae 23f",
-            "cmp edx, 4",
-            "jae 22f",
-            "cmp edx, 1",
-            "jl 29f",
-            "mov cl, byte ptr [rsi]", // load, 1..=3
-            "je 21f",
-            "movzx esi, word ptr [rsi + rdx - 2]", // load
-            "mov word ptr [rdi + rdx - 2], si",
-            "21:",
-            "mov byte ptr [rdi], cl",
-            "29:",
-            "xor eax, eax",
-            "ret",
-            "22:",
-            "mov ecx, dword ptr [rsi + rdx - 4]", // load, 4..=7
-            "mov esi, dword ptr [rsi]",           // load
-            "mov dword ptr [rdi + rdx - 4], ecx",
-            "mov dword ptr [rdi], esi",
-            "xor eax, eax",
-            "ret",
-            "23:",
-            "mov rcx, qword ptr [rsi + rdx - 8]", // load, 8..=15
-            "mov rsi, qword ptr [rsi]",           // load
-            "mov qword ptr [rdi], rsi",
-            "mov qword ptr [rdi + rdx - 8], rcx",
-            "xor eax, eax",
-            "ret",
-            "31:",
-            "movups xmm2, xmmword ptr [rsi + rdx - 16]", // load, 33..=64
-            "movups xmm3, xmmword ptr [rsi + rdx - 32]", // load
-            "movups xmmword ptr [rdi], xmm0",
-            "movups xmmword ptr [rdi + 16], xmm1",
-            "movups xmmword ptr [rdi + rdx - 16], xmm2",
-            "movups xmmword ptr [rdi + rdx - 32], xmm3",
-            "xor eax, eax",
-            "ret",
-            "30:",
-            "cmp rdx, 128",
-            "ja 40f",
-            "movups xmm1, xmmword ptr [rsi + 16]", // load, 33..=128
+            "7:",
             "cmp rdx, 64",
-            "jbe 31b",
-            "movups xmm2, xmmword ptr [rsi + 32]", // load, 65..=128
-            "movups xmm3, xmmword ptr [rsi + 48]", // load
-            "movups xmm4, xmmword ptr [rsi + rdx - 16]", // load
-            "movups xmm5, xmmword ptr [rsi + rdx - 32]", // load
-            "movups xmm6, xmmword ptr [rsi + rdx - 48]", // load
-            "movups xmm7, xmmword ptr [rsi + rdx - 64]", // load
-            "movups xmmword ptr [rdi], xmm0",
+            "ja 8f",
+            "movups xmm0, xmmword ptr [rsi]",      // load
+            "movups xmm1, xmmword ptr [rsi + 16]", // load
             "movups xmmword ptr [rdi + 16], xmm1",
-            "movups xmmword ptr [rdi + 32], xmm2",
-            "movups xmmword ptr [rdi + 48], xmm3",
-            "movups xmmword ptr [rdi + rdx - 16], xmm4",
-            "movups xmmword ptr [rdi + rdx - 32], xmm5",
-            "movups xmmword ptr [rdi + rdx - 48], xmm6",
-            "movups xmmword ptr [rdi + rdx - 64], xmm7",
-            "xor eax, eax",
-            "ret",
-            "40:",
-            "mov rcx, rdi", // > 128
-            "sub rcx, rsi",
-            "cmp rcx, rdx",
-            "jb 60f", // dst - src < n: copy backward
-            "lea r8, [rcx + rdx]",
-            "xor r8, rcx",
-            "shr r8, 63",
-            "and ecx, 0xf00",
-            "add ecx, r8d",
-            "je 61f",                                    // 4k aliasing: copy backward
-            "movups xmm5, xmmword ptr [rsi + rdx - 16]", // load, forward: last 64 bytes first
-            "movups xmm6, xmmword ptr [rsi + rdx - 32]", // load
-            "mov rcx, rdi",
-            "or rdi, 15",
-            "movups xmm7, xmmword ptr [rsi + rdx - 48]", // load
-            "movups xmm8, xmmword ptr [rsi + rdx - 64]", // load
-            "sub rsi, rcx",
-            "inc rdi",
-            "add rsi, rdi",
-            "lea rdx, [rcx + rdx - 64]",
-            "50:",
-            "movups xmm1, xmmword ptr [rsi]", // load, 64-byte blocks to 16-aligned dst
-            "movups xmm2, xmmword ptr [rsi + 16]", // load
-            "movups xmm3, xmmword ptr [rsi + 32]", // load
-            "movups xmm4, xmmword ptr [rsi + 48]", // load
-            "sub rsi, -64",
-            "movaps xmmword ptr [rdi], xmm1",
-            "movaps xmmword ptr [rdi + 16], xmm2",
-            "movaps xmmword ptr [rdi + 32], xmm3",
-            "movaps xmmword ptr [rdi + 48], xmm4",
-            "sub rdi, -64",
-            "cmp rdx, rdi",
-            "ja 50b",
-            "movups xmmword ptr [rdx + 48], xmm5",
-            "movups xmmword ptr [rdx + 32], xmm6",
-            "movups xmmword ptr [rdx + 16], xmm7",
-            "movups xmmword ptr [rdx], xmm8",
-            "movups xmmword ptr [rcx], xmm0",
-            "xor eax, eax",
-            "ret",
-            "60:",
-            "test rcx, rcx",
-            "je 29b", // dst == src
-            "61:",
-            "movups xmm5, xmmword ptr [rsi + 16]", // load, backward: first 64 bytes first
-            "movups xmm6, xmmword ptr [rsi + 32]", // load
-            "lea rcx, [rdi + rdx - 65]",
-            "movups xmm7, xmmword ptr [rsi + 48]",       // load
-            "movups xmm8, xmmword ptr [rsi + rdx - 16]", // load
-            "sub rsi, rdi",
-            "and rcx, -16",
-            "add rsi, rcx",
-            "62:",
-            "movups xmm1, xmmword ptr [rsi + 48]", // load, 64-byte blocks downward
-            "movups xmm2, xmmword ptr [rsi + 32]", // load
-            "movups xmm3, xmmword ptr [rsi + 16]", // load
-            "movups xmm4, xmmword ptr [rsi]",      // load
-            "add rsi, -64",
-            "movaps xmmword ptr [rcx + 48], xmm1",
-            "movaps xmmword ptr [rcx + 32], xmm2",
-            "movaps xmmword ptr [rcx + 16], xmm3",
-            "movaps xmmword ptr [rcx], xmm4",
-            "add rcx, -64",
-            "cmp rdi, rcx",
-            "jb 62b",
             "movups xmmword ptr [rdi], xmm0",
-            "movups xmmword ptr [rdi + 16], xmm5",
-            "movups xmmword ptr [rdi + 32], xmm6",
-            "movups xmmword ptr [rdi + 48], xmm7",
-            "movups xmmword ptr [rdx + rdi - 16], xmm8",
+            "movups xmm0, xmmword ptr [rsi + rdx - 32]", // load
+            "movups xmm1, xmmword ptr [rsi + rdx - 16]", // load
+            "movups xmmword ptr [rdi + rdx - 16], xmm1",
+            "movups xmmword ptr [rdi + rdx - 32], xmm0",
             "xor eax, eax",
             "ret",
+            "8:",
+            "cmp rdx, 128",
+            "ja 10f",
+            "movups xmm0, xmmword ptr [rsi]",      // load
+            "movups xmm1, xmmword ptr [rsi + 16]", // load
+            "movups xmm2, xmmword ptr [rsi + 32]", // load
+            "movups xmm3, xmmword ptr [rsi + 48]", // load
+            "movups xmmword ptr [rdi + 48], xmm3",
+            "movups xmmword ptr [rdi + 32], xmm2",
+            "movups xmmword ptr [rdi + 16], xmm1",
+            "movups xmmword ptr [rdi], xmm0",
+            "movups xmm0, xmmword ptr [rsi + rdx - 64]", // load
+            "movups xmm1, xmmword ptr [rsi + rdx - 48]", // load
+            "movups xmm2, xmmword ptr [rsi + rdx - 32]", // load
+            "movups xmm3, xmmword ptr [rsi + rdx - 16]", // load
+            "movups xmmword ptr [rdi + rdx - 16], xmm3",
+            "movups xmmword ptr [rdi + rdx - 32], xmm2",
+            "movups xmmword ptr [rdi + rdx - 48], xmm1",
+            "movups xmmword ptr [rdi + rdx - 64], xmm0",
+            "xor eax, eax",
+            "ret",
+            "10:",
+            "movups xmm0, xmmword ptr [rsi]",      // load
+            "movups xmm1, xmmword ptr [rsi + 16]", // load
+            "movups xmmword ptr [rdi + 16], xmm1",
+            "movups xmmword ptr [rdi], xmm0",
+            "mov eax, edi",
+            "and eax, 31",
+            "mov ecx, 32",
+            "sub rcx, rax",
+            "neg rax",
+            "add rax, rdi",
+            "add rax, 32",
+            "add rsi, rcx",
+            "sub rdx, rcx",
+            "add rdx, -32",
+            "xor ecx, ecx",
+            "11:",
+            "movups xmm0, xmmword ptr [rsi + rcx]", // load
+            "movups xmm1, xmmword ptr [rsi + rcx + 16]", // load
+            "movups xmmword ptr [rax + rcx + 16], xmm1",
+            "movups xmmword ptr [rax + rcx], xmm0",
+            "add rcx, 32",
+            "cmp rcx, rdx",
+            "jb 11b",
+            "movups xmm0, xmmword ptr [rsi + rdx]", // load
+            "movups xmm1, xmmword ptr [rsi + rdx + 16]", // load
+            "movups xmmword ptr [rax + rdx + 16], xmm1",
+            "movups xmmword ptr [rax + rdx], xmm0",
             "9:",
-            "ret", // fault landing: the handler sets rax to the signal
+            "xor eax, eax",
+            "ret",
         )
     }
 
@@ -331,15 +306,13 @@ pub mod arch {
 
     // Every instruction is 4 bytes, so the crash points below are instruction
     // indices; SLICE_LOADS and SLICE_RET must be updated with any edit to the asm.
-    // Instruction-for-instruction the forward path of macOS _platform_memmove, plus crash points.
-    #[cfg(target_os = "macos")]
-    const SLICE_LOADS: [usize; 19] = [
-        8, 9, 15, 16, 22, 23, 30, 31, 32, 38, 39, 48, 51, 59, 64, 72, 75, 83, 88,
+    const SLICE_LOADS: [usize; 22] = [
+        8, 15, 19, 23, 24, 31, 33, 40, 42, 49, 51, 58, 63, 69, 74, 76, 78, 84, 95, 98, 103, 105,
     ];
-    #[cfg(target_os = "macos")]
-    const SLICE_RET: usize = 95;
+    const SLICE_RET: usize = 108;
 
-    #[cfg(target_os = "macos")]
+    // LLVM libc inline_memcpy (llvm-project e7dc4d6, Apache-2.0 WITH LLVM-exception) as compiled
+    // for aarch64, plus crash points and the returned signal.
     #[unsafe(naked)]
     pub extern "C" fn slice(
         _dst: *const u8, // x0
@@ -347,224 +320,126 @@ pub mod arch {
         _n: u64,         // x2
     ) -> VecResult {
         core::arch::naked_asm!(
-            "cmp x2, #64",         // 0
-            "b.hi 6f",             // 1
-            "add x3, x1, x2",      // 2: srcend
-            "add x4, x0, x2",      // 3: dstend
-            "cmp x2, #32",         // 4
-            "b.hi 4f",             // 5
-            "cmp x2, #16",         // 6
-            "b.lo 1f",             // 7
-            "ldr q0, [x1]",        // 8: load, 16..=32
-            "ldur q1, [x3, #-16]", // 9: load
-            "str q0, [x0]",        // 10
-            "stur q1, [x4, #-16]", // 11
-            "mov x0, #0",          // 12
-            "ret",                 // 13
+            "cmp x2, #1",   // 0
+            "b.le 1f",      // 1
+            "cmp x2, #2",   // 2
+            "b.eq 2f",      // 3
+            "cmp x2, #3",   // 4
+            "b.eq 3f",      // 5
+            "cmp x2, #4",   // 6
+            "b.ne 4f",      // 7
+            "ldr w8, [x1]", // 8: load
+            "str w8, [x0]", // 9
+            "mov x0, #0",   // 10
+            "ret",          // 11
             "1:",
-            "tbz x2, #3, 2f",     // 14
-            "ldr x5, [x1]",       // 15: load, 8..=15
-            "ldur x6, [x3, #-8]", // 16: load
-            "str x5, [x0]",       // 17
-            "stur x6, [x4, #-8]", // 18
-            "mov x0, #0",         // 19
-            "ret",                // 20
+            "cbz x2, 9f",    // 12
+            "cmp x2, #1",    // 13
+            "b.ne 4f",       // 14
+            "ldrb w8, [x1]", // 15: load
+            "strb w8, [x0]", // 16
+            "mov x0, #0",    // 17
+            "ret",           // 18
             "2:",
-            "tbz x2, #2, 3f",     // 21
-            "ldr w5, [x1]",       // 22: load, 4..=7
-            "ldur w6, [x3, #-4]", // 23: load
-            "str w5, [x0]",       // 24
-            "stur w6, [x4, #-4]", // 25
-            "mov x0, #0",         // 26
-            "ret",                // 27
+            "ldrh w8, [x1]", // 19: load
+            "strh w8, [x0]", // 20
+            "mov x0, #0",    // 21
+            "ret",           // 22
             "3:",
-            "cbz x2, 9f",          // 28
-            "lsr x7, x2, #1",      // 29
-            "ldrb w5, [x1]",       // 30: load, 1..=3
-            "ldurb w6, [x3, #-1]", // 31: load
-            "ldrb w8, [x1, x7]",   // 32: load
-            "strb w5, [x0]",       // 33
-            "sturb w6, [x4, #-1]", // 34
-            "strb w8, [x0, x7]",   // 35
-            "mov x0, #0",          // 36
-            "ret",                 // 37
+            "ldrh w8, [x1]",     // 23: load
+            "ldrb w9, [x1, #2]", // 24: load
+            "strh w8, [x0]",     // 25
+            "strb w9, [x0, #2]", // 26
+            "mov x0, #0",        // 27
+            "ret",               // 28
             "4:",
-            "ldp q0, q1, [x1]",       // 38: load, 33..=64
-            "ldp q2, q3, [x3, #-32]", // 39: load
-            "stp q0, q1, [x0]",       // 40
-            "stp q2, q3, [x4, #-32]", // 41
-            "mov x0, #0",             // 42
-            "ret",                    // 43
-            "6:",
-            "cmp x2, #16384",    // 44
-            "b.hs 7f",           // 45
-            "add x6, x0, #32",   // 46: dst rounded up to 32
-            "and x6, x6, #-32",  // 47
-            "ldnp q2, q3, [x1]", // 48: load
-            "sub x5, x6, x0",    // 49
-            "add x1, x1, x5",    // 50
-            "ldnp q0, q1, [x1]", // 51: load
-            "add x1, x1, #32",   // 52
-            "sub x2, x2, x5",    // 53
-            "stp q2, q3, [x0]",  // 54
-            "subs x2, x2, #64",  // 55
-            "b.ls 11f",          // 56
-            "10:",
-            "stp q0, q1, [x6]",  // 57: 32-byte blocks to aligned dst
-            "add x6, x6, #32",   // 58
-            "ldnp q0, q1, [x1]", // 59: load
-            "add x1, x1, #32",   // 60
-            "subs x2, x2, #32",  // 61
-            "b.hi 10b",          // 62
-            "11:",
-            "add x1, x1, x2",        // 63
-            "ldnp q2, q3, [x1]",     // 64: load, last 32 bytes, may overlap
-            "stp q0, q1, [x6]",      // 65
-            "add x6, x6, x2",        // 66
-            "stp q2, q3, [x6, #32]", // 67
-            "mov x0, #0",            // 68
-            "ret",                   // 69
-            "7:",
-            "add x6, x0, #32",   // 70: dst rounded up to 32
-            "and x6, x6, #-32",  // 71
-            "ldnp q2, q3, [x1]", // 72: load
-            "sub x5, x6, x0",    // 73
-            "add x1, x1, x5",    // 74
-            "ldnp q0, q1, [x1]", // 75: load
-            "add x1, x1, #32",   // 76
-            "sub x2, x2, x5",    // 77
-            "stnp q2, q3, [x0]", // 78
-            "subs x2, x2, #64",  // 79
-            "b.ls 13f",          // 80
-            "12:",
-            "stnp q0, q1, [x6]", // 81: 32-byte blocks to aligned dst
-            "add x6, x6, #32",   // 82
-            "ldnp q0, q1, [x1]", // 83: load
-            "add x1, x1, #32",   // 84
-            "subs x2, x2, #32",  // 85
-            "b.hi 12b",          // 86
-            "13:",
-            "add x1, x1, x2",         // 87
-            "ldnp q2, q3, [x1]",      // 88: load, last 32 bytes, may overlap
-            "stnp q0, q1, [x6]",      // 89
-            "add x6, x6, x2",         // 90
-            "stnp q2, q3, [x6, #32]", // 91
-            "mov x0, #0",             // 92
-            "ret",                    // 93
-            "9:",
-            "mov x0, #0", // 94: signal = 0 (success)
-            "ret",        // 95
-        )
-    }
-
-    // Instruction-for-instruction the glibc / Arm optimized-routines memcpy-advsimd, plus crash points.
-    #[cfg(not(target_os = "macos"))]
-    const SLICE_LOADS: [usize; 20] = [
-        8, 9, 15, 16, 22, 23, 30, 31, 32, 38, 39, 46, 49, 56, 61, 63, 67, 69, 74, 76,
-    ];
-    #[cfg(not(target_os = "macos"))]
-    const SLICE_RET: usize = 81;
-
-    #[cfg(not(target_os = "macos"))]
-    #[unsafe(naked)]
-    pub extern "C" fn slice(
-        _dst: *const u8, // x0
-        _src: u64,       // x1
-        _n: u64,         // x2
-    ) -> VecResult {
-        core::arch::naked_asm!(
-            "add x4, x1, x2",      // 0: srcend
-            "add x5, x0, x2",      // 1: dstend
-            "cmp x2, #128",        // 2
-            "b.hi 6f",             // 3
-            "cmp x2, #32",         // 4
-            "b.hi 4f",             // 5
-            "cmp x2, #16",         // 6
-            "b.lo 1f",             // 7
-            "ldr q0, [x1]",        // 8: load, 16..=32
-            "ldur q1, [x4, #-16]", // 9: load
-            "str q0, [x0]",        // 10
-            "stur q1, [x5, #-16]", // 11
-            "mov x0, #0",          // 12
-            "ret",                 // 13
-            "1:",
-            "tbz w2, #3, 2f",     // 14
-            "ldr x6, [x1]",       // 15: load, 8..=15
-            "ldur x7, [x4, #-8]", // 16: load
-            "str x6, [x0]",       // 17
-            "stur x7, [x5, #-8]", // 18
-            "mov x0, #0",         // 19
-            "ret",                // 20
-            "2:",
-            "tbz w2, #2, 3f",     // 21
-            "ldr w6, [x1]",       // 22: load, 4..=7
-            "ldur w8, [x4, #-4]", // 23: load
-            "str w6, [x0]",       // 24
-            "stur w8, [x5, #-4]", // 25
-            "mov x0, #0",         // 26
-            "ret",                // 27
-            "3:",
-            "cbz x2, 9f",           // 28
-            "lsr x14, x2, #1",      // 29
-            "ldrb w6, [x1]",        // 30: load, 1..=3
-            "ldurb w10, [x4, #-1]", // 31: load
-            "ldrb w8, [x1, x14]",   // 32: load
-            "strb w6, [x0]",        // 33
-            "strb w8, [x0, x14]",   // 34
-            "sturb w10, [x5, #-1]", // 35
-            "mov x0, #0",           // 36
-            "ret",                  // 37
-            "4:",
-            "ldp q0, q1, [x1]",       // 38: load, 33..=128
-            "ldp q2, q3, [x4, #-32]", // 39: load
-            "cmp x2, #64",            // 40
-            "b.hi 5f",                // 41
-            "stp q0, q1, [x0]",       // 42
-            "stp q2, q3, [x5, #-32]", // 43
-            "mov x0, #0",             // 44
-            "ret",                    // 45
+            "cmp x2, #7",        // 29
+            "b.hi 5f",           // 30
+            "ldr w8, [x1]",      // 31: load
+            "sub x9, x2, #4",    // 32
+            "ldr w10, [x1, x9]", // 33: load
+            "str w8, [x0]",      // 34
+            "str w10, [x0, x9]", // 35
+            "mov x0, #0",        // 36
+            "ret",               // 37
             "5:",
-            "ldp q4, q5, [x1, #32]",  // 46: load, 65..=128
-            "cmp x2, #96",            // 47
-            "b.ls 8f",                // 48
-            "ldp q6, q7, [x4, #-64]", // 49: load, 97..=128
-            "stp q6, q7, [x5, #-64]", // 50
-            "8:",
-            "stp q0, q1, [x0]",       // 51
-            "stp q4, q5, [x0, #32]",  // 52
-            "stp q2, q3, [x5, #-32]", // 53
-            "mov x0, #0",             // 54
-            "ret",                    // 55
+            "cmp x2, #15",       // 38
+            "b.hi 6f",           // 39
+            "ldr x8, [x1]",      // 40: load
+            "sub x9, x2, #8",    // 41
+            "ldr x10, [x1, x9]", // 42: load
+            "str x8, [x0]",      // 43
+            "str x10, [x0, x9]", // 44
+            "mov x0, #0",        // 45
+            "ret",               // 46
             "6:",
-            "ldr q3, [x1]", // 56: load, > 128: copy 16 bytes, then align src down to 16
-            "and x14, x1, #15", // 57
-            "and x1, x1, #-16", // 58
-            "sub x3, x0, x14", // 59
-            "add x2, x2, x14", // 60: n is now 16 too large
-            "ldp q0, q1, [x1, #16]", // 61: load
-            "str q3, [x0]", // 62
-            "ldp q2, q3, [x1, #48]", // 63: load
-            "subs x2, x2, #144", // 64
-            "b.ls 7f",      // 65
-            "10:",
-            "stp q0, q1, [x3, #16]",  // 66: 64-byte blocks
-            "ldp q0, q1, [x1, #80]",  // 67: load
-            "stp q2, q3, [x3, #48]",  // 68
-            "ldp q2, q3, [x1, #112]", // 69: load
-            "add x1, x1, #64",        // 70
-            "add x3, x3, #64",        // 71
-            "subs x2, x2, #64",       // 72
-            "b.hi 10b",               // 73
+            "cmp x2, #31",      // 47
+            "b.hi 7f",          // 48
+            "ldr q0, [x1]",     // 49: load
+            "sub x8, x2, #16",  // 50
+            "ldr q1, [x1, x8]", // 51: load
+            "str q0, [x0]",     // 52
+            "str q1, [x0, x8]", // 53
+            "mov x0, #0",       // 54
+            "ret",              // 55
             "7:",
-            "ldp q4, q5, [x4, #-64]", // 74: load, last 64 bytes, may overlap
-            "stp q0, q1, [x3, #16]",  // 75
-            "ldp q0, q1, [x4, #-32]", // 76: load
-            "stp q2, q3, [x3, #48]",  // 77
-            "stp q4, q5, [x5, #-64]", // 78
-            "stp q0, q1, [x5, #-32]", // 79
+            "cmp x2, #63",      // 56
+            "b.hi 8f",          // 57
+            "ldp q0, q1, [x1]", // 58: load
+            "sub x8, x2, #32",  // 59
+            "add x9, x1, x8",   // 60
+            "add x8, x0, x8",   // 61
+            "stp q0, q1, [x0]", // 62
+            "ldp q0, q1, [x9]", // 63: load
+            "stp q0, q1, [x8]", // 64
+            "mov x0, #0",       // 65
+            "ret",              // 66
+            "8:",
+            "cmp x2, #127",          // 67
+            "b.hi 10f",              // 68
+            "ldp q0, q1, [x1]",      // 69: load
+            "sub x8, x2, #64",       // 70
+            "add x9, x1, x8",        // 71
+            "add x8, x0, x8",        // 72
+            "stp q0, q1, [x0]",      // 73
+            "ldp q0, q2, [x1, #32]", // 74: load
+            "stp q0, q2, [x0, #32]", // 75
+            "ldp q0, q1, [x9]",      // 76: load
+            "stp q0, q1, [x8]",      // 77
+            "ldp q2, q0, [x9, #32]", // 78: load
+            "stp q2, q0, [x8, #32]", // 79
+            "mov x0, #0",            // 80
+            "ret",                   // 81
+            "10:",
+            "and x9, x1, #0xf",  // 82
+            "mov w10, #16",      // 83
+            "ldr q0, [x1]",      // 84: load
+            "sub x9, x10, x9",   // 85
+            "mov x8, xzr",       // 86
+            "sub x11, x2, x9",   // 87
+            "add x10, x1, x9",   // 88
+            "add x9, x0, x9",    // 89
+            "sub x11, x11, #64", // 90
+            "str q0, [x0]",      // 91
+            "11:",
+            "add x12, x10, x8",       // 92
+            "add x13, x9, x8",        // 93
+            "add x8, x8, #64",        // 94
+            "ldp q0, q1, [x12]",      // 95: load
+            "cmp x8, x11",            // 96
+            "stp q0, q1, [x13]",      // 97
+            "ldp q2, q0, [x12, #32]", // 98: load
+            "stp q2, q0, [x13, #32]", // 99
+            "b.lo 11b",               // 100
+            "add x8, x10, x11",       // 101
+            "add x9, x9, x11",        // 102
+            "ldp q0, q1, [x8]",       // 103: load
+            "stp q0, q1, [x9]",       // 104
+            "ldp q0, q2, [x8, #32]",  // 105: load
+            "stp q0, q2, [x9, #32]",  // 106
             "9:",
-            "mov x0, #0", // 80: signal = 0 (success)
-            "ret",        // 81
+            "mov x0, #0", // 107
+            "ret",        // 108
         )
     }
 
