@@ -7,8 +7,25 @@ pub struct ReadMemError {
 
 pub type Ptr = u64;
 
-pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
-    let res = arch::u64(at);
+/// Reads a 64-bit value from the address `at`.
+///
+/// # Safety
+///
+/// The caller must ensure all of the following:
+///
+/// - If `at..at + 8` is readable, it refers to an initialized 8-byte value in a
+///   live allocation. The range must not be concurrently mutated, and no
+///   conflicting Rust reference may be used for the duration of the call.
+/// - If any part of `at..at + 8` is not readable, `kindasafe_init::init()` must
+///   have succeeded on the calling thread, the relevant fault signal must not
+///   be blocked, and the installed handler must be able to recover from the
+///   fault. Recovery is a speculative-read mechanism, not a substitute for a
+///   valid pointer: a failed recovery may terminate the process or deliver the
+///   fault to an application handler.
+///
+/// The read must not race with any other access to the same memory.
+pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
+    let res = unsafe { arch::u64(at) };
     if res.signal == 0 {
         Ok(res.value)
     } else {
@@ -16,8 +33,26 @@ pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     }
 }
 
-pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
+/// Copies `buf.len()` bytes from the address `at` into `buf`.
+///
+/// If the copy faults, `buf` may contain a prefix of the source bytes even
+/// though this function returns an error.
+///
+/// # Safety
+///
+/// The caller must ensure all of the following:
+///
+/// - If `at..at + buf.len()` is readable, it refers to initialized bytes in a
+///   live allocation. The source range must not be concurrently mutated or
+///   aliased by a conflicting reference or access for the duration of the
+///   copy. In particular, it must not overlap `buf` unless the caller rules
+///   out conflicting accesses.
+/// - If any source byte is not readable, the same recovery-handler, signal
+///   delivery and reentrancy requirements as for [`u64()`] apply.
+/// - `buf` must remain uniquely borrowed for the duration of the call. No other
+///   thread or signal handler may access it concurrently.
+pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
+    let res = unsafe { arch::slice(buf.as_ptr(), at, buf.len() as u64) };
     if res.signal == 0 {
         Ok(())
     } else {
@@ -25,11 +60,22 @@ pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     }
 }
 
-pub fn str(buf: &mut [u8], at: Ptr) -> Result<&str, ReadMemError> {
+/// Copies up to `buf.len()` bytes from the address `at` into `buf` and returns
+/// the NUL-terminated prefix as a UTF-8 string.
+///
+/// If `at == 0`, this returns `Ok("")` without reading memory.
+///
+/// # Safety
+///
+/// The caller must uphold the same source address, initialization, aliasing,
+/// concurrency and fault-recovery requirements as for [`slice()`]. Note that the
+/// entire source range of length `buf.len()` is copied, not only the bytes up
+/// to the first NUL. On error, `buf` may have been partially overwritten.
+pub unsafe fn str(buf: &mut [u8], at: Ptr) -> Result<&str, ReadMemError> {
     if at == 0 {
         return Ok("");
     }
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
+    let res = unsafe { arch::slice(buf.as_ptr(), at, buf.len() as u64) };
     if res.signal != 0 {
         return Err(ReadMemError { signal: res.signal });
     }
@@ -85,8 +131,14 @@ pub mod arch {
         pub signal: u64,
     }
 
+    /// # Safety
+    ///
+    /// See [`crate::u64()`]. `_at` must be valid for a 64-bit read, or a fault at
+    /// that address must be recoverable by the installed handlers. The read
+    /// must not race with concurrent accesses. The caller must also ensure that
+    /// a successful return contains an initialized value.
     #[unsafe(naked)]
-    pub extern "sysv64" fn u64(_at: u64) -> U64Res {
+    pub unsafe extern "sysv64" fn u64(_at: u64) -> U64Res {
         core::arch::naked_asm!(
             "mov rax, [rdi]", // 00010000 	48 8B 07 	mov 	rax, qword ptr [rdi]
             "xor edx, edx",   // 00010003 	31 D2 	xor 	edx, edx
@@ -99,8 +151,18 @@ pub mod arch {
         pub signal: u64,
     }
 
+    /// # Safety
+    ///
+    /// `_dst` must be valid for writes of `_n` bytes and must be uniquely
+    /// writable for the duration of the call. `_src` must be valid for reads of
+    /// `_n` initialized bytes, or any fault must be recoverable by the
+    /// installed handlers; the source must not be concurrently mutated or
+    /// conflict with `_dst`. The caller is responsible for ensuring `_n` fits
+    /// the destination allocation; unlike [`crate::slice()`], this function has
+    /// no destination-length information. Signal-delivery and reentrancy
+    /// requirements are the same as for [`crate::u64()`].
     #[unsafe(naked)]
-    pub extern "sysv64" fn slice(
+    pub unsafe extern "sysv64" fn slice(
         _dst: *const u8, // rdi
         _src: u64,       // rsi
         _n: u64,         // rdx
@@ -140,8 +202,14 @@ pub mod arch {
         pub signal: u64,
     }
 
+    /// # Safety
+    ///
+    /// See [`crate::u64()`]. `_at` must be valid for a 64-bit read, or a fault at
+    /// that address must be recoverable by the installed handlers. The read
+    /// must not race with concurrent accesses. The caller must also ensure that
+    /// a successful return contains an initialized value.
     #[unsafe(naked)]
-    pub extern "C" fn u64(_at: u64) -> U64Res {
+    pub unsafe extern "C" fn u64(_at: u64) -> U64Res {
         core::arch::naked_asm!(
             "ldr x0, [x0]", // offset 0: load 64-bit value from address in x0
             "mov x1, #0",   // offset 4: signal = 0 (success)
@@ -154,8 +222,18 @@ pub mod arch {
         pub signal: u64,
     }
 
+    /// # Safety
+    ///
+    /// `_dst` must be valid for writes of `_n` bytes and must be uniquely
+    /// writable for the duration of the call. `_src` must be valid for reads of
+    /// `_n` initialized bytes, or any fault must be recoverable by the
+    /// installed handlers; the source must not be concurrently mutated or
+    /// conflict with `_dst`. The caller is responsible for ensuring `_n` fits
+    /// the destination allocation; unlike [`crate::slice()`], this function has
+    /// no destination-length information. Signal-delivery and reentrancy
+    /// requirements are the same as for [`crate::u64()`].
     #[unsafe(naked)]
-    pub extern "C" fn slice(
+    pub unsafe extern "C" fn slice(
         _dst: *const u8, // x0
         _src: u64,       // x1
         _n: u64,         // x2
