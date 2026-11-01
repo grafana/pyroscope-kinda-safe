@@ -8,8 +8,8 @@ pub enum InitError {
     SanityCheckFailed,
 }
 
-// Publish the previous disposition before installing crash_handler, so even a
-// signal delivered inside sigaction sees the fallback. The handler is stored
+// Publish how the signal was handled before installing crash_handler, so even
+// a signal delivered inside sigaction sees the fallback. The handler is stored
 // last with Release ordering, so a reader that sees it also sees its flags.
 struct Fallback {
     handler: AtomicUsize,
@@ -55,9 +55,9 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// first.
 ///
 /// # Safety
-/// The caller must coordinate installation with other code that changes SIGSEGV
-/// or SIGBUS dispositions: querying the old disposition and installing the new
-/// one are separate syscalls.
+/// The caller must coordinate installation with other code that changes how
+/// SIGSEGV or SIGBUS are handled: reading the current setup and installing ours
+/// are separate syscalls.
 ///
 /// Previous handlers must support direct chaining and remain valid for as long
 /// as our handlers can call them. SIG_DFL and SIG_IGN are honored
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_init_idempotent() {
-        // SAFETY: These tests only change signal dispositions through init().
+        // SAFETY: These tests only change signal handling through init().
         assert!(unsafe { init() }.is_ok());
         assert!(unsafe { init() }.is_ok());
         assert!(is_initialized().is_some());
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_sanity_check() {
-        // SAFETY: These tests only change signal dispositions through init().
+        // SAFETY: These tests only change signal handling through init().
         assert!(unsafe { init() }.is_ok());
         assert!(sanity_check().is_ok());
     }

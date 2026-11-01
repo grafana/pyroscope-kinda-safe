@@ -1,8 +1,8 @@
 use kindasafe::{Ptr, slice, u64};
 use std::fmt;
 
-// SAFETY: These tests only change signal dispositions through init(); the
-// inherited dispositions are the defaults or the test runtime's static handlers.
+// SAFETY: These tests only change signal handling through init(). Before that,
+// signals use the default action or the test runtime's static handlers.
 type TestResult<T = ()> = std::result::Result<T, TestError>;
 
 enum TestError {

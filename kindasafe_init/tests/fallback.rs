@@ -88,7 +88,7 @@ fn raise(signal: libc::c_int) {
 
 fn run_child(scenario: &str, signal: libc::c_int) -> std::process::ExitStatus {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "fallback_dispositions", "--nocapture"])
+        .args(["--exact", "fallback_behavior", "--nocapture"])
         .env(SCENARIO, scenario)
         .env(SIGNAL, signal.to_string())
         .output()
@@ -205,7 +205,7 @@ fn child(scenario: &str, signal: libc::c_int) {
 }
 
 #[test]
-fn fallback_dispositions() {
+fn fallback_behavior() {
     if let Ok(scenario) = std::env::var(SCENARIO) {
         let signal: i32 = std::env::var(SIGNAL).unwrap().parse().unwrap();
         child(&scenario, signal);

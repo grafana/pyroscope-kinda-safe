@@ -142,7 +142,7 @@ fn installation_boundaries() {
         for _ in 0..4 {
             scope.spawn(|| {
                 // SAFETY: The same fallback remains valid; only init() changes
-                // signal dispositions in this child after the initial setup.
+                // signal handling in this child after the initial setup.
                 assert_eq!(unsafe { kindasafe_init::init() }, expected);
             });
         }

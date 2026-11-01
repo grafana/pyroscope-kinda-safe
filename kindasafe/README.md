@@ -10,8 +10,9 @@ This is a `no_std` crate providing the core read primitives. Use [`kindasafe_ini
 
 ```rust
 // First, initialize the signal handlers (requires kindasafe_init)
-// SAFETY: No other code changes these dispositions during initialization.
-// Previous dispositions are defaults or SA_SIGINFO handlers that remain valid.
+// SAFETY: Nothing else changes how SIGSEGV and SIGBUS are handled during
+// initialization. Until now they were left at the default or handled by
+// SA_SIGINFO functions that remain valid.
 unsafe { kindasafe_init::init() }.expect("failed to init");
 
 // Read a u64 from a potentially-invalid address
