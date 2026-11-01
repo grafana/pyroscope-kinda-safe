@@ -225,8 +225,8 @@ const RET: &[u8] = &[0xC3];
 #[cfg(target_arch = "aarch64")]
 fn expected_fault_instruction(reg: kindasafe::Reg) -> &'static [u8] {
     match reg {
-        kindasafe::Reg::X1 => &0xF9400000u32.to_le_bytes(), // ldr x0, [x0]
-        kindasafe::Reg::X0 => &0x38401423u32.to_le_bytes(), // ldrb w3, [x1], #1
+        kindasafe::Reg::X1 => &const { 0xF9400000u32.to_le_bytes() }, // ldr x0, [x0]
+        kindasafe::Reg::X0 => &const { 0x38401423u32.to_le_bytes() }, // ldrb w3, [x1], #1
     }
 }
 #[cfg(target_arch = "aarch64")]
