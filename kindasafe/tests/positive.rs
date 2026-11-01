@@ -52,7 +52,7 @@ fn u64_aligned() -> TestResult {
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
     let x_ptr = x.as_ptr() as Ptr;
 
-    let i = u64(x_ptr)?;
+    let i = unsafe { u64(x_ptr) }?;
     assert_eq!(i, 0xefbeaddebebafeca);
     Ok(())
 }
@@ -63,7 +63,7 @@ fn u64_unaligned() -> TestResult {
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0x00];
     let x_ptr = x.as_ptr() as Ptr + 1;
-    let i = u64(x_ptr)?;
+    let i = unsafe { u64(x_ptr) }?;
     assert_eq!(i, 0xefbeaddebebafe);
     Ok(())
 }
@@ -73,7 +73,7 @@ fn u64_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
         assert_eq!(
-            u64(p),
+            unsafe { u64(p) },
             Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
@@ -87,7 +87,7 @@ fn u64_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         assert_eq!(
-            u64(p),
+            unsafe { u64(p) },
             Err(kindasafe::ReadMemError {
                 signal: libc::SIGBUS as u64
             })
@@ -102,16 +102,16 @@ fn u64_unaligned_page_boundary() -> TestResult {
 
     trigger_sigsegv_page_boundary(|p, ps| {
         let boundary = ps as u64;
-        assert_eq!(u64(p), Ok(0x6161616161616161));
-        assert_eq!(u64(p + boundary - 0x8), Ok(0x6161616161616161));
+        assert_eq!(unsafe { u64(p) }, Ok(0x6161616161616161));
+        assert_eq!(unsafe { u64(p + boundary - 0x8) }, Ok(0x6161616161616161));
         assert_eq!(
-            u64(p + boundary - 0x7),
+            unsafe { u64(p + boundary - 0x7) },
             Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
         );
         assert_eq!(
-            u64(p + boundary),
+            unsafe { u64(p + boundary) },
             Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
@@ -125,7 +125,7 @@ fn vec_aligned() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
-    slice(&mut buf, x.as_ptr() as Ptr)?;
+    unsafe { slice(&mut buf, x.as_ptr() as Ptr) }?;
     assert_eq!(buf, x.clone());
     Ok(())
 }
@@ -136,7 +136,7 @@ fn vec_unaligned() -> TestResult {
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0xcc];
     let x_ptr = x.as_ptr() as Ptr + 1;
-    slice(&mut buf[0..7], x_ptr)?;
+    unsafe { slice(&mut buf[0..7], x_ptr) }?;
     let expected: Vec<u8> = vec![0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0];
     assert_eq!(buf, expected);
     Ok(())
@@ -149,10 +149,10 @@ fn slice_preserves_destination_bounds() -> TestResult {
     let at = source.as_ptr() as Ptr;
     let mut buf = [0xff; 8];
 
-    slice(&mut buf[1..7], at)?;
+    unsafe { slice(&mut buf[1..7], at) }?;
     assert_eq!(&buf, b"\xffhello\0\xff");
 
-    slice(&mut buf[1..1], at)?;
+    unsafe { slice(&mut buf[1..1], at) }?;
     assert_eq!(&buf, b"\xffhello\0\xff");
     Ok(())
 }
@@ -163,7 +163,7 @@ fn vec_sigsegv() -> TestResult {
     trigger_sigsegv(|p| {
         let mut buf = [0u8; 8];
         assert_eq!(
-            slice(&mut buf, p as Ptr),
+            unsafe { slice(&mut buf, p as Ptr) },
             Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })
@@ -177,7 +177,7 @@ fn vec_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         let mut buf = [0u8; 8];
-        let res = slice(&mut buf, p as Ptr);
+        let res = unsafe { slice(&mut buf, p as Ptr) };
         assert_eq!(
             res,
             Err(kindasafe::ReadMemError {
@@ -195,7 +195,7 @@ fn vec_sigsegv_page_boundary() -> TestResult {
         let boundary = ps as u64;
         let mut buf = [0u8; 16];
         assert_eq!(
-            slice(&mut buf, (p + boundary - 8) as Ptr),
+            unsafe { slice(&mut buf, (p + boundary - 8) as Ptr) },
             Err(kindasafe::ReadMemError {
                 signal: PROT_NONE_SIGNAL
             })

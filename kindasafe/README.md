@@ -15,7 +15,9 @@ This is a `no_std` crate providing the core read primitives. Use [`kindasafe_ini
 unsafe { kindasafe_init::init() }.expect("failed to init");
 
 // Read a u64 from a potentially-invalid address
-let value = kindasafe::u64(some_address);
+// SAFETY: init() succeeded above, and the result is validated before use
+// because the target may be modified concurrently.
+let value = unsafe { kindasafe::u64(some_address) };
 match value {
     Ok(v) => println!("read: {v:#x}"),
     Err(e) => println!("fault: signal {}", e.signal),

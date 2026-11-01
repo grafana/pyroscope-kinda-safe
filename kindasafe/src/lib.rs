@@ -7,7 +7,25 @@ pub struct ReadMemError {
 
 pub type Ptr = u64;
 
-pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
+/// Reads a `u64` from `at`, returning `Err` instead of crashing when the
+/// address is not readable.
+///
+/// The load is a single aligned 8-byte access when `at` is aligned. The bytes
+/// are returned as-is, whatever the memory contains.
+///
+/// # Safety
+/// `kindasafe_init::init()` must have returned `Ok` in this process and the
+/// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
+/// fault terminates the process instead of returning `Err`.
+///
+/// The read is a plain, non-atomic load and recovery only covers faults. Other
+/// threads may be writing `at` concurrently, so the result can be stale or
+/// torn and must be treated as untrusted bytes.
+///
+/// `at` must not refer to memory that Rust code in this program holds a live
+/// `&mut` or other exclusive borrow to, unless the address was derived from
+/// that borrow and exposed.
+pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     let res = arch::u64(at);
     if res.signal == 0 {
         Ok(res.value)
@@ -16,7 +34,26 @@ pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     }
 }
 
-pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
+/// Copies `buf.len()` bytes from `at` into `buf`, returning `Err` instead of
+/// crashing when any source byte is not readable.
+///
+/// Only faults on the source are reported. `buf` is a valid exclusive slice,
+/// so writes into it are always in bounds. On `Err` the contents of `buf` are
+/// unspecified.
+///
+/// # Safety
+/// `kindasafe_init::init()` must have returned `Ok` in this process and the
+/// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
+/// fault terminates the process instead of returning `Err`.
+///
+/// The copy is byte-wise and not atomic as a whole. Other threads may be
+/// writing the source concurrently, so the result can be stale or torn and
+/// must be treated as untrusted bytes.
+///
+/// `at..at + buf.len()` must not overlap memory that Rust code in this program
+/// holds a live `&mut` or other exclusive borrow to, unless the address was
+/// derived from that borrow and exposed.
+pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
     if res.signal == 0 {
         Ok(())
