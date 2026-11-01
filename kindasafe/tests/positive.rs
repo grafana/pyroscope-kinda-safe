@@ -141,6 +141,21 @@ fn vec_unaligned() -> TestResult {
 }
 
 #[test]
+fn slice_preserves_destination_bounds() -> TestResult {
+    kindasafe_init::init()?;
+    let source = *b"hello\0";
+    let at = source.as_ptr() as Ptr;
+    let mut buf = [0xff; 8];
+
+    slice(&mut buf[1..7], at)?;
+    assert_eq!(&buf, b"\xffhello\0\xff");
+
+    slice(&mut buf[1..1], at)?;
+    assert_eq!(&buf, b"\xffhello\0\xff");
+    Ok(())
+}
+
+#[test]
 fn vec_sigsegv() -> TestResult {
     kindasafe_init::init()?;
     trigger_sigsegv(|p| {

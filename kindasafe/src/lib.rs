@@ -17,7 +17,7 @@ pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
 }
 
 pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
+    let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
     if res.signal == 0 {
         Ok(())
     } else {
@@ -81,9 +81,9 @@ pub mod arch {
 
     #[unsafe(naked)]
     pub extern "sysv64" fn slice(
-        _dst: *const u8, // rdi
-        _src: u64,       // rsi
-        _n: u64,         // rdx
+        _dst: *mut u8, // rdi
+        _src: u64,     // rsi
+        _n: u64,       // rdx
     ) -> VecResult {
         core::arch::naked_asm!(
             "mov ecx, edx", // 00010000 	89 D1 	mov 	ecx, edx
@@ -136,9 +136,9 @@ pub mod arch {
 
     #[unsafe(naked)]
     pub extern "C" fn slice(
-        _dst: *const u8, // x0
-        _src: u64,       // x1
-        _n: u64,         // x2
+        _dst: *mut u8, // x0
+        _src: u64,     // x1
+        _n: u64,       // x2
     ) -> VecResult {
         core::arch::naked_asm!(
             "cbz x2, 2f", // offset 0: skip if n==0
