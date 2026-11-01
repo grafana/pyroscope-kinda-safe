@@ -57,7 +57,7 @@ pub enum Reg {
 }
 
 #[cfg(target_arch = "x86_64")]
-pub mod arch {
+mod arch {
 
     #[repr(C)]
     pub struct U64Res {
@@ -112,7 +112,7 @@ pub mod arch {
 }
 
 #[cfg(target_arch = "aarch64")]
-pub mod arch {
+mod arch {
 
     #[repr(C)]
     pub struct U64Res {
