@@ -38,7 +38,11 @@ pub fn init_locked() -> Result<(), InitError> {
 /// # Safety
 /// `data` must be a valid pointer to `libc::ucontext_t`.
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
+unsafe extern "C" fn crash_handler(
+    sig: libc::c_int,
+    info: *mut libc::siginfo_t,
+    data: *mut libc::c_void,
+) {
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let pc = (*ctx).uc_mcontext.gregs[libc::REG_RIP as usize] as usize;
@@ -60,7 +64,11 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
 /// # Safety
 /// `data` must be a valid pointer to `libc::ucontext_t`.
 #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
+unsafe extern "C" fn crash_handler(
+    sig: libc::c_int,
+    info: *mut libc::siginfo_t,
+    data: *mut libc::c_void,
+) {
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let mctx = (*ctx).uc_mcontext;
@@ -83,7 +91,11 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
 /// # Safety
 /// `data` must be a valid pointer to `libc::ucontext_t`.
 #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
+unsafe extern "C" fn crash_handler(
+    sig: libc::c_int,
+    info: *mut libc::siginfo_t,
+    data: *mut libc::c_void,
+) {
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let pc = (*ctx).uc_mcontext.pc as usize;
@@ -107,7 +119,11 @@ unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut
 /// # Safety
 /// `data` must be a valid pointer to `libc::ucontext_t`.
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-unsafe fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
+unsafe extern "C" fn crash_handler(
+    sig: libc::c_int,
+    info: *mut libc::siginfo_t,
+    data: *mut libc::c_void,
+) {
     unsafe {
         let ctx: *mut libc::ucontext_t = data as *mut libc::ucontext_t;
         let mctx = (*ctx).uc_mcontext;
@@ -159,7 +175,11 @@ unsafe fn fallback(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc
 
 fn new_signal_handler(
     signal: libc::c_int,
-    handler: unsafe fn(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void),
+    handler: unsafe extern "C" fn(
+        sig: libc::c_int,
+        info: *mut libc::siginfo_t,
+        data: *mut libc::c_void,
+    ),
 ) -> Result<libc::sigaction, ()> {
     unsafe {
         let mut old: libc::sigaction = std::mem::zeroed();
