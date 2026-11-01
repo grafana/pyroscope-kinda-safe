@@ -25,26 +25,6 @@ pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     }
 }
 
-pub fn str(buf: &mut [u8], at: Ptr) -> Result<&str, ReadMemError> {
-    if at == 0 {
-        return Ok("");
-    }
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
-    if res.signal != 0 {
-        return Err(ReadMemError { signal: res.signal });
-    }
-    for i in 0..buf.len() {
-        if buf[i] == 0 {
-            let v = &buf[..i];
-            return match core::str::from_utf8(v) {
-                Ok(v) => Ok(v),
-                Err(_) => Err(ReadMemError { signal: 228 }), //todo
-            };
-        }
-    }
-    Err(ReadMemError { signal: 229 }) //todo
-}
-
 pub fn crash_points() -> CrashPoints {
     arch::crash_points()
 }
