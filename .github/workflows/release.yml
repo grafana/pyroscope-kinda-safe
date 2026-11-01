@@ -18,9 +18,9 @@ jobs:
       - name: Verify tag matches package version
         env:
           TAG: ${{ github.ref_name }}
-        run: make check/tag-version
+        run: python3 scripts/check_tag_version.py
       - name: Verify kindasafe versions match
-        run: make check/versions-match
+        run: python3 scripts/check_versions_match.py
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: "${{ github.ref_name }}"

@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
 
       - name: Check kindasafe and kindasafe_init versions match
-        run: make check/versions-match
+        run: python3 scripts/check_versions_match.py
 
   test:
     name: cargo test (${{ matrix.arch.name }})
