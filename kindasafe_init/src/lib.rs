@@ -1,20 +1,37 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum InitError {
     InstallSignalHandlersFailed,
     SanityCheckFailed,
 }
 
-// todo think how to have less static mut
-static mut FALLBACK_SIGSEGV: libc::sigaction = unsafe { std::mem::zeroed() };
-static mut FALLBACK_SIGBUS: libc::sigaction = unsafe { std::mem::zeroed() };
+// Only the handler address is used when chaining. Publish it before installing
+// crash_handler, so even a signal delivered inside sigaction sees the fallback.
+static FALLBACK_SIGSEGV: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
+static FALLBACK_SIGBUS: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 
+// TODO: Handle fork safety for this lock, the cached result, and inherited
+// handlers/fallbacks together. Resetting the lock and reinstalling could save
+// crash_handler as its own fallback. See https://github.com/grafana/pyroscope-kinda-safe/issues/57.
 static INIT_LOCK: spin::Mutex<Option<Result<(), InitError>>> = spin::Mutex::new(None);
 
 pub fn is_initialized() -> Option<Result<(), InitError>> {
     let g = INIT_LOCK.lock();
     g.clone()
 }
-pub fn init() -> Result<(), InitError> {
+/// Install the handlers once, preserving the previous handlers as fallbacks.
+///
+/// Calls to this function are serialized.
+///
+/// # Safety
+/// The caller must coordinate installation with other code that changes SIGSEGV
+/// or SIGBUS dispositions: querying the old disposition and installing the new
+/// one are separate syscalls.
+///
+/// Previous dispositions must be SIG_DFL or SA_SIGINFO handlers that support
+/// direct chaining and remain valid for as long as our handlers can call them.
+pub unsafe fn init() -> Result<(), InitError> {
     let mut g = INIT_LOCK.lock();
     if let Some(prev) = g.clone() {
         return prev;
@@ -25,13 +42,13 @@ pub fn init() -> Result<(), InitError> {
     res
 }
 
-pub fn init_locked() -> Result<(), InitError> {
-    unsafe {
-        FALLBACK_SIGSEGV = new_signal_handler(libc::SIGSEGV, crash_handler)
-            .map_err(|_| InitError::InstallSignalHandlersFailed)?;
-        FALLBACK_SIGBUS = new_signal_handler(libc::SIGBUS, crash_handler)
-            .map_err(|_| InitError::InstallSignalHandlersFailed)?;
-    }
+// Called only while holding INIT_LOCK, and never retried, even after a partial
+// installation failure. A published fallback is therefore never overwritten.
+fn init_locked() -> Result<(), InitError> {
+    new_signal_handler(libc::SIGSEGV, crash_handler, &FALLBACK_SIGSEGV)
+        .map_err(|_| InitError::InstallSignalHandlersFailed)?;
+    new_signal_handler(libc::SIGBUS, crash_handler, &FALLBACK_SIGBUS)
+        .map_err(|_| InitError::InstallSignalHandlersFailed)?;
     Ok(())
 }
 
@@ -149,27 +166,27 @@ fn call_fallback(
     sig: libc::c_int,
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
-    fallback: libc::sigaction,
+    fallback: usize,
 ) {
-    if fallback.sa_sigaction == 0 {
+    if fallback == libc::SIG_DFL {
         restore_default_ignal_handler(sig);
     } else {
         let handler = unsafe {
             std::mem::transmute::<
                 usize,
                 extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void),
-            >(fallback.sa_sigaction)
+            >(fallback)
         };
         handler(sig, info, data);
     }
 }
 unsafe fn fallback(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
     if sig == libc::SIGSEGV {
-        call_fallback(sig, info, data, unsafe { FALLBACK_SIGSEGV });
+        call_fallback(sig, info, data, FALLBACK_SIGSEGV.load(Ordering::Acquire));
         return;
     }
     if sig == libc::SIGBUS {
-        call_fallback(sig, info, data, unsafe { FALLBACK_SIGBUS });
+        call_fallback(sig, info, data, FALLBACK_SIGBUS.load(Ordering::Acquire));
     }
 }
 
@@ -180,7 +197,8 @@ fn new_signal_handler(
         info: *mut libc::siginfo_t,
         data: *mut libc::c_void,
     ),
-) -> Result<libc::sigaction, ()> {
+    fallback: &AtomicUsize,
+) -> Result<(), ()> {
     unsafe {
         let mut old: libc::sigaction = std::mem::zeroed();
         if libc::sigaction(signal, std::ptr::null_mut(), &mut old) != 0 {
@@ -189,10 +207,11 @@ fn new_signal_handler(
         let mut new: libc::sigaction = old;
         new.sa_sigaction = handler as usize;
         new.sa_flags |= libc::SA_RESTART | libc::SA_SIGINFO;
-        if libc::sigaction(signal, &new, &mut old) != 0 {
+        fallback.store(old.sa_sigaction, Ordering::Release);
+        if libc::sigaction(signal, &new, std::ptr::null_mut()) != 0 {
             return Err(());
         }
-        Ok(old)
+        Ok(())
     }
 }
 
@@ -238,15 +257,17 @@ mod tests {
 
     #[test]
     fn test_init_idempotent() {
-        assert!(init().is_ok());
-        assert!(init().is_ok());
+        // SAFETY: These tests only change signal dispositions through init().
+        assert!(unsafe { init() }.is_ok());
+        assert!(unsafe { init() }.is_ok());
         assert!(is_initialized().is_some());
         assert_eq!(is_initialized(), Some(Ok(())));
     }
 
     #[test]
     fn test_sanity_check() {
-        assert!(init().is_ok());
+        // SAFETY: These tests only change signal dispositions through init().
+        assert!(unsafe { init() }.is_ok());
         assert!(sanity_check().is_ok());
     }
 }

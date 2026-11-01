@@ -10,7 +10,9 @@ This is a `no_std` crate providing the core read primitives. Use [`kindasafe_ini
 
 ```rust
 // First, initialize the signal handlers (requires kindasafe_init)
-kindasafe_init::init().expect("failed to init");
+// SAFETY: No other code changes these dispositions during initialization.
+// Previous dispositions are defaults or SA_SIGINFO handlers that remain valid.
+unsafe { kindasafe_init::init() }.expect("failed to init");
 
 // Read a u64 from a potentially-invalid address
 let value = kindasafe::u64(some_address);

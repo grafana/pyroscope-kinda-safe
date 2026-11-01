@@ -1,6 +1,8 @@
 use kindasafe::{Ptr, slice, u64};
 use std::fmt;
 
+// SAFETY: These tests only change signal dispositions through init(); the
+// inherited dispositions are the defaults or the test runtime's static handlers.
 type TestResult<T = ()> = std::result::Result<T, TestError>;
 
 enum TestError {
@@ -38,14 +40,14 @@ const PROT_NONE_SIGNAL: u64 = libc::SIGBUS as u64;
 
 #[test]
 fn test_init() -> TestResult {
-    kindasafe_init::init()?;
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
+    unsafe { kindasafe_init::init() }?;
     Ok(())
 }
 
 #[test]
 fn u64_aligned() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
     let x_ptr = x.as_ptr() as Ptr;
@@ -57,7 +59,7 @@ fn u64_aligned() -> TestResult {
 
 #[test]
 fn u64_unaligned() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0x00];
     let x_ptr = x.as_ptr() as Ptr + 1;
@@ -68,7 +70,7 @@ fn u64_unaligned() -> TestResult {
 
 #[test]
 fn u64_sigsegv() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
         assert_eq!(
             u64(p),
@@ -82,7 +84,7 @@ fn u64_sigsegv() -> TestResult {
 
 #[test]
 fn u64_sigbus() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         assert_eq!(
             u64(p),
@@ -96,7 +98,7 @@ fn u64_sigbus() -> TestResult {
 
 #[test]
 fn u64_unaligned_page_boundary() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
         let boundary = ps as u64;
@@ -120,7 +122,7 @@ fn u64_unaligned_page_boundary() -> TestResult {
 
 #[test]
 fn vec_aligned() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
     slice(&mut buf, x.as_ptr() as Ptr)?;
@@ -130,7 +132,7 @@ fn vec_aligned() -> TestResult {
 
 #[test]
 fn vec_unaligned() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0xcc];
     let x_ptr = x.as_ptr() as Ptr + 1;
@@ -142,7 +144,7 @@ fn vec_unaligned() -> TestResult {
 
 #[test]
 fn slice_preserves_destination_bounds() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     let source = *b"hello\0";
     let at = source.as_ptr() as Ptr;
     let mut buf = [0xff; 8];
@@ -157,7 +159,7 @@ fn slice_preserves_destination_bounds() -> TestResult {
 
 #[test]
 fn vec_sigsegv() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
         let mut buf = [0u8; 8];
         assert_eq!(
@@ -172,7 +174,7 @@ fn vec_sigsegv() -> TestResult {
 
 #[test]
 fn vec_sigbus() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         let mut buf = [0u8; 8];
         let res = slice(&mut buf, p as Ptr);
@@ -187,7 +189,7 @@ fn vec_sigbus() -> TestResult {
 }
 #[test]
 fn vec_sigsegv_page_boundary() -> TestResult {
-    kindasafe_init::init()?;
+    unsafe { kindasafe_init::init() }?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
         let boundary = ps as u64;
