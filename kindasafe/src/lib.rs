@@ -17,7 +17,7 @@ pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
 }
 
 pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
+    let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
     if res.signal == 0 {
         Ok(())
     } else {
@@ -29,7 +29,7 @@ pub fn str(buf: &mut [u8], at: Ptr) -> Result<&str, ReadMemError> {
     if at == 0 {
         return Ok("");
     }
-    let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
+    let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
     if res.signal != 0 {
         return Err(ReadMemError { signal: res.signal });
     }
@@ -99,11 +99,12 @@ pub mod arch {
         pub signal: u64,
     }
 
+    #[cfg(not(miri))]
     #[unsafe(naked)]
     pub extern "sysv64" fn slice(
-        _dst: *const u8, // rdi
-        _src: u64,       // rsi
-        _n: u64,         // rdx
+        _dst: *mut u8, // rdi
+        _src: u64,     // rsi
+        _n: u64,       // rdx
     ) -> VecResult {
         core::arch::naked_asm!(
             "mov ecx, edx", // 00010000 	89 D1 	mov 	ecx, edx
@@ -111,6 +112,16 @@ pub mod arch {
             "xor eax, eax", // 00010004 	31 C0 	xor 	eax, eax
             "ret",          // 00010006 	C3 	ret
         )
+    }
+
+    // Miri cannot execute naked assembly. Keep the same raw-pointer contract
+    // but use an interpretable copy so provenance violations are observable.
+    #[cfg(miri)]
+    pub extern "sysv64" fn slice(dst: *mut u8, src: u64, n: u64) -> VecResult {
+        unsafe {
+            core::ptr::copy_nonoverlapping(src as *const u8, dst, n as usize);
+        }
+        VecResult { signal: 0 }
     }
 
     pub fn crash_points() -> crate::CrashPoints {
@@ -154,11 +165,12 @@ pub mod arch {
         pub signal: u64,
     }
 
+    #[cfg(not(miri))]
     #[unsafe(naked)]
     pub extern "C" fn slice(
-        _dst: *const u8, // x0
-        _src: u64,       // x1
-        _n: u64,         // x2
+        _dst: *mut u8, // x0
+        _src: u64,     // x1
+        _n: u64,       // x2
     ) -> VecResult {
         core::arch::naked_asm!(
             "cbz x2, 2f", // offset 0: skip if n==0
@@ -171,6 +183,16 @@ pub mod arch {
             "mov x0, #0", // offset 20: signal = 0 (success)
             "ret",        // offset 24
         )
+    }
+
+    // Miri cannot execute naked assembly. Keep the same raw-pointer contract
+    // but use an interpretable copy so provenance violations are observable.
+    #[cfg(miri)]
+    pub extern "C" fn slice(dst: *mut u8, src: u64, n: u64) -> VecResult {
+        unsafe {
+            core::ptr::copy_nonoverlapping(src as *const u8, dst, n as usize);
+        }
+        VecResult { signal: 0 }
     }
 
     pub fn crash_points() -> crate::CrashPoints {
@@ -188,5 +210,30 @@ pub mod arch {
                 },
             ],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slice_writes_through_mutable_destination() {
+        let src = *b"kindasafe";
+        let mut dst = [0u8; 9];
+
+        slice(&mut dst, src.as_ptr() as Ptr).unwrap();
+
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn str_writes_through_mutable_destination() {
+        let src = *b"kindasafe\0";
+        let mut dst = [0u8; 10];
+
+        let value = str(&mut dst, src.as_ptr() as Ptr).unwrap();
+
+        assert_eq!(value, "kindasafe");
     }
 }
