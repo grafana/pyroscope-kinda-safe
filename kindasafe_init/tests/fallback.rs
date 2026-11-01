@@ -2,8 +2,9 @@
 // init(), then delivers a signal that no crash point recovers from. The
 // previous handler must then be honored: ignored signals return, SIG_DFL
 // terminates the process, and handlers are called with the signature their
-// SA_SIGINFO flag selects. Previous handlers installed with SA_RESETHAND, and
-// on macOS SIG_IGN handlers, are rejected by init() and left in place.
+// SA_SIGINFO flag selects. init() rejects and leaves in place previous
+// handlers installed with SA_RESETHAND, a flag macOS does not report, and on
+// macOS SIG_IGN handlers.
 
 use std::os::unix::process::ExitStatusExt;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
@@ -211,17 +212,16 @@ fn fallback_dispositions() {
         return;
     }
     for signal in [libc::SIGSEGV, libc::SIGBUS] {
-        let mut succeeding = vec![
-            "plain_handler",
-            "siginfo_handler",
-            "resethand_rejected",
-            "resethand_sigbus_only",
-        ];
+        let mut succeeding = vec!["plain_handler", "siginfo_handler"];
         let mut terminating = vec!["default_raise", "default_fault"];
         if cfg!(target_os = "macos") {
             succeeding.extend(["ignored_rejected", "ignored_sigbus_only"]);
         } else {
-            succeeding.push("ignored_raise");
+            succeeding.extend([
+                "ignored_raise",
+                "resethand_rejected",
+                "resethand_sigbus_only",
+            ]);
             terminating.push("ignored_fault");
         }
         for scenario in succeeding {
