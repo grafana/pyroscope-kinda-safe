@@ -16,12 +16,14 @@ pub type Ptr = u64;
 /// - If `at..at + 8` is readable, it refers to an initialized 8-byte value in a
 ///   live allocation. The range must not be concurrently mutated, and no
 ///   conflicting Rust reference may be used for the duration of the call.
-/// - If any part of `at..at + 8` is not readable, `kindasafe_init::init()` must
-///   have succeeded on the calling thread, the relevant fault signal must not
-///   be blocked, and the installed handler must be able to recover from the
-///   fault. Recovery is a speculative-read mechanism, not a substitute for a
-///   valid pointer: a failed recovery may terminate the process or deliver the
-///   fault to an application handler.
+/// - If any part of `at..at + 8` is not readable, the `kindasafe_init` handlers
+///   must have been installed process-wide (normally by a successful
+///   `kindasafe_init::init()` call, which may run on any thread) and must remain
+///   installed. The relevant fault signal must be deliverable on the calling
+///   thread (not blocked), and the installed handler must be able to recover
+///   from the fault. Recovery is a speculative-read mechanism, not a substitute
+///   for a valid pointer: a failed recovery may terminate the process or
+///   deliver the fault to an application handler.
 ///
 /// The read must not race with any other access to the same memory.
 pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {

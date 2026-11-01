@@ -2,7 +2,7 @@
 
 Signal handler initialization for the [kindasafe](https://crates.io/crates/kindasafe) signal-safe memory reading library.
 
-Installs SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover from memory access faults instead of crashing. Preserves any previously installed signal handlers as fallbacks.
+Installs process-wide SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover from memory access faults instead of crashing. Preserves any previously installed signal handlers as fallbacks. Initialization may happen on any thread, but a read still requires the relevant fault signal to be deliverable on the thread performing the read.
 
 ## Usage
 
@@ -15,7 +15,8 @@ let result = unsafe { kindasafe::u64(some_address) };
 ```
 
 Initialization only makes a fault at an otherwise-invalid address recoverable.
-It does not make an arbitrary address valid.
+It does not make an arbitrary address valid, and it does not unblock fault
+signals on threads that have them blocked.
 
 ## License
 

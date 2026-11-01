@@ -12,8 +12,9 @@ Functions that read or write at a caller-supplied raw address (`u64`, `slice`,
 `str`, and the architecture entry points) are `unsafe`. Callers must uphold the
 `# Safety` contract for the function they use, including address validity,
 aliasing and concurrent-access rules, initialized data, and fault-recovery
-preconditions. Fault recovery is a speculative-read mechanism, not a substitute
-for a valid pointer.
+preconditions. The recovery handlers are process-wide, but the relevant fault
+signal must be deliverable on the reading thread. Fault recovery is a
+speculative-read mechanism, not a substitute for a valid pointer.
 
 ## Usage
 
@@ -22,8 +23,9 @@ for a valid pointer.
 kindasafe_init::init().expect("failed to init");
 
 // SAFETY: `some_address` must be valid for an 8-byte read, or a fault there
-// must be recoverable by the handlers installed above. The memory must not be
-// concurrently mutated.
+// must be recoverable by the process-wide handlers installed above, with the
+// fault signal deliverable on this thread. The memory must not be concurrently
+// mutated.
 let value = unsafe { kindasafe::u64(some_address) };
 match value {
     Ok(v) => println!("read: {v:#x}"),
