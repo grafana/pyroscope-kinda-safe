@@ -212,6 +212,123 @@ fn vec_sigsegv_page_boundary() -> TestResult {
     Ok(())
 }
 
+#[cfg(target_arch = "x86_64")]
+fn expected_fault_instruction(reg: kindasafe::Reg) -> &'static [u8] {
+    match reg {
+        kindasafe::Reg::Rdx => &[0x48, 0x8B, 0x07], // mov rax, [rdi]
+        kindasafe::Reg::Rax => &[0xF3, 0xA4],       // rep movsb
+    }
+}
+#[cfg(target_arch = "x86_64")]
+const RET: &[u8] = &[0xC3];
+
+#[cfg(target_arch = "aarch64")]
+fn expected_fault_instruction(reg: kindasafe::Reg) -> &'static [u8] {
+    match reg {
+        kindasafe::Reg::X1 => &0xF9400000u32.to_le_bytes(), // ldr x0, [x0]
+        kindasafe::Reg::X0 => &0x38401423u32.to_le_bytes(), // ldrb w3, [x1], #1
+    }
+}
+#[cfg(target_arch = "aarch64")]
+const RET: &[u8] = &0xD65F03C0u32.to_le_bytes();
+
+// The crash point offsets are hand-maintained; a stale one makes the signal
+// handler fall through to the fallback instead of recovering the read.
+#[test]
+fn crash_points_point_at_faulting_instruction_and_skip_to_ret() {
+    let points = kindasafe::crash_points().crash_points;
+    assert_ne!(points[0].signal_reg, points[1].signal_reg);
+    for point in points {
+        let fault = expected_fault_instruction(point.signal_reg);
+        let at_pc = unsafe { std::slice::from_raw_parts(point.pc as *const u8, fault.len()) };
+        assert_eq!(
+            at_pc, fault,
+            "{:?}: pc is not the faulting instruction",
+            point.signal_reg
+        );
+        let after_skip =
+            unsafe { std::slice::from_raw_parts((point.pc + point.skip) as *const u8, RET.len()) };
+        assert_eq!(
+            after_skip, RET,
+            "{:?}: pc + skip is not ret",
+            point.signal_reg
+        );
+    }
+}
+
+// The destination is 2^32 + 1 bytes of address space backed by one 64 MiB
+// file mapped repeatedly, so the copy commits 64 MiB rather than 4 GiB.
+// Byte 2^32 aliases byte 0. The copy is observed through raw pointers because
+// the aliasing breaks the uniqueness the slice type promises.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn slice_copies_more_than_4gib() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+    const CHUNK: usize = 64 << 20;
+    const N: usize = (1 << 32) + 1;
+    const TOTAL: usize = N.div_ceil(CHUNK) * CHUNK;
+    const MARKER: u8 = 0xAB;
+    unsafe {
+        let mut template = *b"/tmp/kindasafe_alias_XXXXXX\0";
+        let fd = libc::mkstemp(template.as_mut_ptr() as *mut libc::c_char);
+        assert!(fd >= 0, "mkstemp failed");
+        libc::unlink(template.as_ptr() as *const libc::c_char);
+        assert_eq!(
+            libc::ftruncate(fd, CHUNK as libc::off_t),
+            0,
+            "ftruncate failed"
+        );
+
+        let dst = libc::mmap(
+            std::ptr::null_mut(),
+            TOTAL,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | libc::MAP_ANON,
+            -1,
+            0,
+        );
+        assert_ne!(dst, libc::MAP_FAILED, "reserving the destination failed");
+        let dst = dst as *mut u8;
+        for i in 0..TOTAL / CHUNK {
+            let want = dst.add(i * CHUNK);
+            let got = libc::mmap(
+                want as *mut libc::c_void,
+                CHUNK,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_FIXED,
+                fd,
+                0,
+            );
+            assert_eq!(got as *mut u8, want, "aliasing chunk {i} failed");
+        }
+
+        let src = libc::mmap(
+            std::ptr::null_mut(),
+            N,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_NORESERVE,
+            -1,
+            0,
+        );
+        assert_ne!(src, libc::MAP_FAILED, "mapping the source failed");
+        let src = src as *mut u8;
+        src.add(N - 1).write_volatile(MARKER);
+
+        let res = slice(std::slice::from_raw_parts_mut(dst, N), src as Ptr);
+        let last = dst.add(N - 1).read_volatile();
+        let first = dst.read_volatile();
+
+        libc::munmap(dst as *mut libc::c_void, TOTAL);
+        libc::munmap(src as *mut libc::c_void, N);
+        libc::close(fd);
+
+        res?;
+        assert_eq!(last, MARKER, "byte 1 << 32 was not copied");
+        assert_eq!(first, MARKER, "byte 0 should alias byte 1 << 32");
+    }
+    Ok(())
+}
+
 fn page_size() -> usize {
     let ps = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     assert!(ps > 0, "sysconf(_SC_PAGESIZE) failed");

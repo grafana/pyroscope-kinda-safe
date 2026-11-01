@@ -86,10 +86,10 @@ mod arch {
         _n: u64,       // rdx
     ) -> VecResult {
         core::arch::naked_asm!(
-            "mov ecx, edx", // 00010000 	89 D1 	mov 	ecx, edx
-            "rep movsb",    // 00010002 	F3 A4 	rep movsb 	byte ptr [rdi], byte ptr [rsi]
-            "xor eax, eax", // 00010004 	31 C0 	xor 	eax, eax
-            "ret",          // 00010006 	C3 	ret
+            "mov rcx, rdx", // 00010000 	48 89 D1 	mov 	rcx, rdx
+            "rep movsb",    // 00010003 	F3 A4 	rep movsb 	byte ptr [rdi], byte ptr [rsi]
+            "xor eax, eax", // 00010005 	31 C0 	xor 	eax, eax
+            "ret",          // 00010007 	C3 	ret
         )
     }
 
@@ -102,7 +102,7 @@ mod arch {
                     skip: 5,
                 },
                 crate::CrashPoint {
-                    pc: slice as *const () as usize + 2, // +2 for 89 D1 	mov 	ecx, edx
+                    pc: slice as *const () as usize + 3, // +3 for 48 89 D1 	mov 	rcx, rdx
                     signal_reg: crate::Reg::Rax,
                     skip: 4,
                 },
