@@ -1,3 +1,32 @@
+//! Signal-safe memory reads with synchronous-fault recovery.
+//!
+//! A read that touches inaccessible memory recovers only when all of these
+//! preconditions hold at the moment of the fault:
+//!
+//! 1. [`kindasafe_init::init`](https://docs.rs/kindasafe_init/latest/kindasafe_init/fn.init.html)
+//!    has completed successfully in this process.
+//! 2. SIGSEGV and SIGBUS still resolve to kindasafe's recovery handlers. A
+//!    later `sigaction` call by another component can replace them.
+//! 3. The thread performing the read has both SIGSEGV and SIGBUS unblocked. A
+//!    blocked synchronous fault cannot be recovered by a signal handler; on
+//!    Linux the process is normally terminated by the default action instead.
+//!
+//! The mask is per-thread and is inherited by nested signal handlers. If a
+//! profiling signal interrupts an application handler that blocked SIGSEGV or
+//! SIGBUS, a `kindasafe` read in the profiling callback has the same blocked
+//! mask and cannot recover. Integrations should call
+//! [`kindasafe_init::recovery_available`](https://docs.rs/kindasafe_init/latest/kindasafe_init/fn.recovery_available.html)
+//! at the start of each sample and skip the read on error. Do not unblock fault
+//! signals from inside a profiling handler: that changes the application's
+//! signal semantics.
+//!
+//! This crate intentionally cannot enforce these preconditions automatically.
+//! Checking the platform signal mask on every read would add a syscall to a
+//! hot primitive, and the crate cannot know which fault signal a particular
+//! access will raise without first attempting the access. The
+//! `kindasafe_init::recovery_available` guard performs the check once at the
+//! integration boundary without modifying any signal state.
+
 #![no_std]
 
 #[derive(Debug, PartialEq)]
@@ -7,6 +36,11 @@ pub struct ReadMemError {
 
 pub type Ptr = u64;
 
+/// Reads a `u64` from `at`, recovering from an inaccessible-address fault.
+///
+/// Fault recovery is only possible when the current thread has working,
+/// unblocked SIGSEGV and SIGBUS recovery handlers installed. See the crate
+/// documentation for the full precondition list and integration guidance.
 pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     let res = arch::u64(at);
     if res.signal == 0 {
@@ -16,6 +50,14 @@ pub fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     }
 }
 
+/// Copies bytes from `at` into `buf`, recovering from an inaccessible source
+/// address.
+///
+/// Fault recovery is only possible when the current thread has working,
+/// unblocked SIGSEGV and SIGBUS recovery handlers installed. See the crate
+/// documentation for the full precondition list and integration guidance.
+/// This does not establish that `at`, aliasing, or concurrent mutation is
+/// otherwise valid for the requested range.
 pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     let res = arch::slice(buf.as_ptr(), at, buf.len() as u64);
     if res.signal == 0 {
@@ -25,6 +67,11 @@ pub fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     }
 }
 
+/// Reads a NUL-terminated UTF-8 string from `at` into `buf`.
+///
+/// Recovery follows the same signal preconditions as [`slice()`]. A missing
+/// terminator or invalid UTF-8 is reported as a [`ReadMemError`] with a
+/// non-signal status code.
 pub fn str(buf: &mut [u8], at: Ptr) -> Result<&str, ReadMemError> {
     if at == 0 {
         return Ok("");
