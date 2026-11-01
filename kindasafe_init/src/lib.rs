@@ -199,7 +199,7 @@ unsafe extern "C" fn crash_handler(
     }
 }
 
-// Dispatch to the disposition that was active before init().
+// Dispatch to the handler that was active before init().
 //
 // SIG_IGN and SIG_DFL are sentinels, not code. A signal sent by a process
 // (si_code <= 0) does not recur when the handler returns, so an ignored one is
@@ -208,6 +208,11 @@ unsafe extern "C" fn crash_handler(
 // hardware fault recurs on return, so restoring SIG_DFL and returning delivers
 // the default action with the original siginfo. Linux does the same for a
 // fault whose signal is ignored.
+//
+// On macOS, si_code does not show whether a SIGSEGV or SIGBUS was sent or
+// caused by a fault: the kernel sets it without regard to the signal's origin.
+// A sent signal mistaken for a fault would be lost, so the signal is always
+// re-raised there, which delivers the default action for a fault as well.
 fn call_fallback(
     sig: libc::c_int,
     info: *mut libc::siginfo_t,
@@ -221,7 +226,7 @@ fn call_fallback(
         libc::SIG_IGN if sent_by_process => {}
         libc::SIG_IGN | libc::SIG_DFL => {
             restore_default_ignal_handler(sig);
-            if sent_by_process {
+            if sent_by_process || cfg!(target_os = "macos") {
                 unsafe { libc::raise(sig) };
             }
         }
