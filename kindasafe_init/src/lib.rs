@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InitError {
@@ -7,10 +7,30 @@ pub enum InitError {
     SanityCheckFailed,
 }
 
-// Only the handler address is used when chaining. Publish it before installing
-// crash_handler, so even a signal delivered inside sigaction sees the fallback.
-static FALLBACK_SIGSEGV: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
-static FALLBACK_SIGBUS: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
+// Publish the previous disposition before installing crash_handler, so even a
+// signal delivered inside sigaction sees the fallback. The handler is stored
+// last with Release ordering, so a reader that sees it also sees its flags.
+struct Fallback {
+    handler: AtomicUsize,
+    flags: AtomicI32,
+}
+
+impl Fallback {
+    const fn new() -> Self {
+        Self {
+            handler: AtomicUsize::new(libc::SIG_DFL),
+            flags: AtomicI32::new(0),
+        }
+    }
+
+    fn store(&self, action: &libc::sigaction) {
+        self.flags.store(action.sa_flags, Ordering::Relaxed);
+        self.handler.store(action.sa_sigaction, Ordering::Release);
+    }
+}
+
+static FALLBACK_SIGSEGV: Fallback = Fallback::new();
+static FALLBACK_SIGBUS: Fallback = Fallback::new();
 
 // TODO: Handle fork safety for this lock, the cached result, and inherited
 // handlers/fallbacks together. Resetting the lock and reinstalling could save
@@ -30,8 +50,9 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// or SIGBUS dispositions: querying the old disposition and installing the new
 /// one are separate syscalls.
 ///
-/// Previous dispositions must be SIG_DFL or SA_SIGINFO handlers that support
-/// direct chaining and remain valid for as long as our handlers can call them.
+/// Previous handlers must support direct chaining and remain valid for as long
+/// as our handlers can call them. SIG_DFL and SIG_IGN dispositions are honored
+/// without calling anything.
 pub unsafe fn init() -> Result<(), InitError> {
     let mut g = INIT_LOCK.lock().expect("initialization lock poisoned");
     if let Some(prev) = g.clone() {
@@ -163,31 +184,56 @@ unsafe extern "C" fn crash_handler(
     }
 }
 
+// Dispatch to the disposition that was active before init().
+//
+// SIG_IGN and SIG_DFL are sentinels, not code. A signal sent by a process
+// (si_code <= 0) does not recur when the handler returns, so an ignored one is
+// dropped and a default one is re-raised while the signal is still blocked:
+// it is delivered with the default action as soon as this handler returns. A
+// hardware fault recurs on return, so restoring SIG_DFL and returning delivers
+// the default action with the original siginfo. Linux does the same for a
+// fault whose signal is ignored.
 fn call_fallback(
     sig: libc::c_int,
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
-    fallback: usize,
+    fallback: &Fallback,
 ) {
-    if fallback == libc::SIG_DFL {
-        restore_default_ignal_handler(sig);
-    } else {
-        let handler = unsafe {
-            std::mem::transmute::<
-                usize,
-                extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void),
-            >(fallback)
-        };
-        handler(sig, info, data);
+    let handler = fallback.handler.load(Ordering::Acquire);
+    let flags = fallback.flags.load(Ordering::Relaxed);
+    let sent_by_process = unsafe { (*info).si_code } <= 0;
+    match handler {
+        libc::SIG_IGN if sent_by_process => {}
+        libc::SIG_IGN | libc::SIG_DFL => {
+            restore_default_ignal_handler(sig);
+            if sent_by_process {
+                unsafe { libc::raise(sig) };
+            }
+        }
+        _ if flags & libc::SA_SIGINFO != 0 => {
+            let handler = unsafe {
+                std::mem::transmute::<
+                    usize,
+                    extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void),
+                >(handler)
+            };
+            handler(sig, info, data);
+        }
+        _ => {
+            let handler =
+                unsafe { std::mem::transmute::<usize, extern "C" fn(libc::c_int)>(handler) };
+            handler(sig);
+        }
     }
 }
+
 unsafe fn fallback(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
     if sig == libc::SIGSEGV {
-        call_fallback(sig, info, data, FALLBACK_SIGSEGV.load(Ordering::Acquire));
+        call_fallback(sig, info, data, &FALLBACK_SIGSEGV);
         return;
     }
     if sig == libc::SIGBUS {
-        call_fallback(sig, info, data, FALLBACK_SIGBUS.load(Ordering::Acquire));
+        call_fallback(sig, info, data, &FALLBACK_SIGBUS);
     }
 }
 
@@ -198,7 +244,7 @@ fn new_signal_handler(
         info: *mut libc::siginfo_t,
         data: *mut libc::c_void,
     ),
-    fallback: &AtomicUsize,
+    fallback: &Fallback,
 ) -> Result<(), ()> {
     unsafe {
         let mut old: libc::sigaction = std::mem::zeroed();
@@ -208,7 +254,7 @@ fn new_signal_handler(
         let mut new: libc::sigaction = old;
         new.sa_sigaction = handler as usize;
         new.sa_flags |= libc::SA_RESTART | libc::SA_SIGINFO;
-        fallback.store(old.sa_sigaction, Ordering::Release);
+        fallback.store(&old);
         if libc::sigaction(signal, &new, std::ptr::null_mut()) != 0 {
             return Err(());
         }
