@@ -7,7 +7,7 @@ Installs SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover f
 ## Usage
 
 ```rust
-// SAFETY: No other code changes these dispositions during initialization.
+// SAFETY: No other code changes these signal handlers during initialization.
 // Previous handlers remain valid for as long as kindasafe may call them.
 unsafe { kindasafe_init::init() }.expect("failed to initialize kindasafe");
 
@@ -16,13 +16,17 @@ let result = kindasafe::u64(some_address);
 ```
 
 Initialization is serialized and its result is cached, including failures. The
-previous dispositions are published atomically before the new handlers become
+previous handlers are published atomically before the new handlers become
 active, so signals can safely chain to them during installation. Signals that
-`kindasafe` does not recover from honor the previous disposition: `SIG_IGN`
+`kindasafe` does not recover from go to the previous handler: `SIG_IGN`
 and `SIG_DFL` keep their meaning, and handlers are called with the signature
-selected by their `SA_SIGINFO` flag.
+selected by their `SA_SIGINFO` flag. The installed handlers inherit the other
+flags of the previous handlers, such as `SA_ONSTACK`. Initialization fails with
+`InitError::UnsupportedPreviousHandler` and leaves the previous handlers in
+place if one of them was installed with `SA_RESETHAND`, because the kernel
+would remove the `kindasafe` handler after the first fault.
 Coordinate initialization with any other code that installs SIGSEGV or SIGBUS
-handlers: querying the previous disposition and replacing it require separate
+handlers: querying the previous handler and replacing it require separate
 system calls.
 
 ## License

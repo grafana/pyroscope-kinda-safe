@@ -1,8 +1,9 @@
-// Each scenario installs a previous disposition for SIGSEGV and SIGBUS, runs
+// Each scenario installs a previous handler for SIGSEGV and SIGBUS, runs
 // init(), then delivers a signal that no crash point recovers from. The
-// previous disposition must then be honored: ignored signals return, default
-// dispositions terminate the process, and handlers are called with the
-// signature their SA_SIGINFO flag selects.
+// previous handler must then be honored: ignored signals return, SIG_DFL
+// terminates the process, and handlers are called with the signature their
+// SA_SIGINFO flag selects. Previous handlers installed with SA_RESETHAND are
+// rejected by init() and left in place.
 
 use std::os::unix::process::ExitStatusExt;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
@@ -31,14 +32,29 @@ extern "C" fn siginfo_handler(
 }
 
 fn install(handler: usize, flags: libc::c_int) {
+    for signal in [libc::SIGSEGV, libc::SIGBUS] {
+        install_one(signal, handler, flags);
+    }
+}
+
+fn install_one(signal: libc::c_int, handler: usize, flags: libc::c_int) {
     unsafe {
         let mut action: libc::sigaction = std::mem::zeroed();
         action.sa_sigaction = handler;
         action.sa_flags = flags;
         libc::sigemptyset(&mut action.sa_mask);
-        for signal in [libc::SIGSEGV, libc::SIGBUS] {
-            assert_eq!(libc::sigaction(signal, &action, std::ptr::null_mut()), 0);
-        }
+        assert_eq!(libc::sigaction(signal, &action, std::ptr::null_mut()), 0);
+    }
+}
+
+fn current_handler(signal: libc::c_int) -> libc::sigaction {
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        assert_eq!(
+            libc::sigaction(signal, std::ptr::null_mut(), &mut action),
+            0
+        );
+        action
     }
 }
 
@@ -107,14 +123,14 @@ fn child(scenario: &str, signal: libc::c_int) {
             unsafe { kindasafe_init::init() }.unwrap();
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             raise(signal);
-            unreachable!("default disposition must terminate the process");
+            unreachable!("SIG_DFL must terminate the process");
         }
         "default_fault" => {
             install(libc::SIG_DFL, 0);
             unsafe { kindasafe_init::init() }.unwrap();
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             fault_outside_kindasafe();
-            unreachable!("default disposition must terminate the process");
+            unreachable!("SIG_DFL must terminate the process");
         }
         "plain_handler" => {
             install(plain_handler as *const () as usize, 0);
@@ -134,6 +150,35 @@ fn child(scenario: &str, signal: libc::c_int) {
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             assert_eq!(CALLS.load(Ordering::Relaxed), 1);
         }
+        "resethand_rejected" => {
+            let handler = siginfo_handler as *const () as usize;
+            install(handler, libc::SA_SIGINFO | libc::SA_RESETHAND);
+            assert_eq!(
+                unsafe { kindasafe_init::init() },
+                Err(kindasafe_init::InitError::UnsupportedPreviousHandler)
+            );
+            assert_eq!(
+                kindasafe_init::is_initialized(),
+                Some(Err(kindasafe_init::InitError::UnsupportedPreviousHandler))
+            );
+            let current = current_handler(signal);
+            assert_eq!(current.sa_sigaction, handler);
+            assert_ne!(current.sa_flags & libc::SA_RESETHAND, 0);
+            raise(signal);
+            assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+            assert_eq!(LAST_SIGNAL.load(Ordering::Relaxed), signal);
+        }
+        "resethand_sigbus_only" => {
+            let handler = siginfo_handler as *const () as usize;
+            install_one(libc::SIGSEGV, handler, libc::SA_SIGINFO);
+            install_one(libc::SIGBUS, handler, libc::SA_SIGINFO | libc::SA_RESETHAND);
+            assert_eq!(
+                unsafe { kindasafe_init::init() },
+                Err(kindasafe_init::InitError::UnsupportedPreviousHandler)
+            );
+            assert_eq!(current_handler(libc::SIGSEGV).sa_sigaction, handler);
+            assert_eq!(current_handler(libc::SIGBUS).sa_sigaction, handler);
+        }
         _ => unreachable!("unknown scenario {scenario}"),
     }
 }
@@ -146,7 +191,13 @@ fn fallback_dispositions() {
         return;
     }
     for signal in [libc::SIGSEGV, libc::SIGBUS] {
-        for scenario in ["ignored_raise", "plain_handler", "siginfo_handler"] {
+        for scenario in [
+            "ignored_raise",
+            "plain_handler",
+            "siginfo_handler",
+            "resethand_rejected",
+            "resethand_sigbus_only",
+        ] {
             let status = run_child(scenario, signal);
             assert!(status.success(), "{scenario} {signal}: {status}");
         }

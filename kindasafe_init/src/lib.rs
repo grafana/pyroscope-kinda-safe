@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 #[derive(Debug, PartialEq, Clone)]
 pub enum InitError {
     InstallSignalHandlersFailed,
+    UnsupportedPreviousHandler,
     SanityCheckFailed,
 }
 
@@ -43,7 +44,12 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 }
 /// Install the handlers once, preserving the previous handlers as fallbacks.
 ///
-/// Calls to this function are serialized.
+/// Calls to this function are serialized. The installed handlers inherit the
+/// flags of the previous handlers, such as `SA_ONSTACK` and `SA_NODEFER`.
+///
+/// # Errors
+/// Returns `UnsupportedPreviousHandler` and changes nothing if a previous
+/// SIGSEGV or SIGBUS handler was installed with `SA_RESETHAND`.
 ///
 /// # Safety
 /// The caller must coordinate installation with other code that changes SIGSEGV
@@ -51,7 +57,7 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// one are separate syscalls.
 ///
 /// Previous handlers must support direct chaining and remain valid for as long
-/// as our handlers can call them. SIG_DFL and SIG_IGN dispositions are honored
+/// as our handlers can call them. SIG_DFL and SIG_IGN are honored
 /// without calling anything.
 pub unsafe fn init() -> Result<(), InitError> {
     let mut g = INIT_LOCK.lock().expect("initialization lock poisoned");
@@ -67,9 +73,18 @@ pub unsafe fn init() -> Result<(), InitError> {
 // Called only while holding INIT_LOCK, and never retried, even after a partial
 // installation failure. A published fallback is therefore never overwritten.
 fn init_locked() -> Result<(), InitError> {
-    new_signal_handler(libc::SIGSEGV, crash_handler, &FALLBACK_SIGSEGV)
+    let old_segv =
+        previous_handler(libc::SIGSEGV).map_err(|_| InitError::InstallSignalHandlersFailed)?;
+    let old_bus =
+        previous_handler(libc::SIGBUS).map_err(|_| InitError::InstallSignalHandlersFailed)?;
+    // The kernel resets a SA_RESETHAND handler to SIG_DFL when it first runs.
+    // Inherited, the flag would uninstall crash_handler after the first fault.
+    if (old_segv.sa_flags | old_bus.sa_flags) & libc::SA_RESETHAND != 0 {
+        return Err(InitError::UnsupportedPreviousHandler);
+    }
+    install(libc::SIGSEGV, &old_segv, crash_handler, &FALLBACK_SIGSEGV)
         .map_err(|_| InitError::InstallSignalHandlersFailed)?;
-    new_signal_handler(libc::SIGBUS, crash_handler, &FALLBACK_SIGBUS)
+    install(libc::SIGBUS, &old_bus, crash_handler, &FALLBACK_SIGBUS)
         .map_err(|_| InitError::InstallSignalHandlersFailed)?;
     Ok(())
 }
@@ -237,8 +252,19 @@ unsafe fn fallback(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc
     }
 }
 
-fn new_signal_handler(
+fn previous_handler(signal: libc::c_int) -> Result<libc::sigaction, ()> {
+    unsafe {
+        let mut old: libc::sigaction = std::mem::zeroed();
+        if libc::sigaction(signal, std::ptr::null_mut(), &mut old) != 0 {
+            return Err(());
+        }
+        Ok(old)
+    }
+}
+
+fn install(
     signal: libc::c_int,
+    old: &libc::sigaction,
     handler: unsafe extern "C" fn(
         sig: libc::c_int,
         info: *mut libc::siginfo_t,
@@ -247,14 +273,10 @@ fn new_signal_handler(
     fallback: &Fallback,
 ) -> Result<(), ()> {
     unsafe {
-        let mut old: libc::sigaction = std::mem::zeroed();
-        if libc::sigaction(signal, std::ptr::null_mut(), &mut old) != 0 {
-            return Err(());
-        }
-        let mut new: libc::sigaction = old;
+        let mut new: libc::sigaction = *old;
         new.sa_sigaction = handler as usize;
         new.sa_flags |= libc::SA_RESTART | libc::SA_SIGINFO;
-        fallback.store(&old);
+        fallback.store(old);
         if libc::sigaction(signal, &new, std::ptr::null_mut()) != 0 {
             return Err(());
         }
