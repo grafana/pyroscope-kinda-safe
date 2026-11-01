@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -14,10 +15,10 @@ static FALLBACK_SIGBUS: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 // TODO: Handle fork safety for this lock, the cached result, and inherited
 // handlers/fallbacks together. Resetting the lock and reinstalling could save
 // crash_handler as its own fallback. See https://github.com/grafana/pyroscope-kinda-safe/issues/57.
-static INIT_LOCK: spin::Mutex<Option<Result<(), InitError>>> = spin::Mutex::new(None);
+static INIT_LOCK: Mutex<Option<Result<(), InitError>>> = Mutex::new(None);
 
 pub fn is_initialized() -> Option<Result<(), InitError>> {
-    let g = INIT_LOCK.lock();
+    let g = INIT_LOCK.lock().expect("initialization lock poisoned");
     g.clone()
 }
 /// Install the handlers once, preserving the previous handlers as fallbacks.
@@ -32,7 +33,7 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// Previous dispositions must be SIG_DFL or SA_SIGINFO handlers that support
 /// direct chaining and remain valid for as long as our handlers can call them.
 pub unsafe fn init() -> Result<(), InitError> {
-    let mut g = INIT_LOCK.lock();
+    let mut g = INIT_LOCK.lock().expect("initialization lock poisoned");
     if let Some(prev) = g.clone() {
         return prev;
     }
