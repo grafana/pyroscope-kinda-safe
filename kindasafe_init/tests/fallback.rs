@@ -2,8 +2,8 @@
 // init(), then delivers a signal that no crash point recovers from. The
 // previous handler must then be honored: ignored signals return, SIG_DFL
 // terminates the process, and handlers are called with the signature their
-// SA_SIGINFO flag selects. Previous handlers installed with SA_RESETHAND are
-// rejected by init() and left in place.
+// SA_SIGINFO flag selects. Previous handlers installed with SA_RESETHAND, and
+// on macOS SIG_IGN handlers, are rejected by init() and left in place.
 
 use std::os::unix::process::ExitStatusExt;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
@@ -179,6 +179,26 @@ fn child(scenario: &str, signal: libc::c_int) {
             assert_eq!(current_handler(libc::SIGSEGV).sa_sigaction, handler);
             assert_eq!(current_handler(libc::SIGBUS).sa_sigaction, handler);
         }
+        "ignored_rejected" => {
+            install(libc::SIG_IGN, 0);
+            assert_eq!(
+                unsafe { kindasafe_init::init() },
+                Err(kindasafe_init::InitError::UnsupportedPreviousHandler)
+            );
+            assert_eq!(current_handler(libc::SIGSEGV).sa_sigaction, libc::SIG_IGN);
+            assert_eq!(current_handler(libc::SIGBUS).sa_sigaction, libc::SIG_IGN);
+            raise(signal);
+        }
+        "ignored_sigbus_only" => {
+            install_one(libc::SIGSEGV, libc::SIG_DFL, 0);
+            install_one(libc::SIGBUS, libc::SIG_IGN, 0);
+            assert_eq!(
+                unsafe { kindasafe_init::init() },
+                Err(kindasafe_init::InitError::UnsupportedPreviousHandler)
+            );
+            assert_eq!(current_handler(libc::SIGSEGV).sa_sigaction, libc::SIG_DFL);
+            assert_eq!(current_handler(libc::SIGBUS).sa_sigaction, libc::SIG_IGN);
+        }
         _ => unreachable!("unknown scenario {scenario}"),
     }
 }
@@ -191,17 +211,24 @@ fn fallback_dispositions() {
         return;
     }
     for signal in [libc::SIGSEGV, libc::SIGBUS] {
-        for scenario in [
-            "ignored_raise",
+        let mut succeeding = vec![
             "plain_handler",
             "siginfo_handler",
             "resethand_rejected",
             "resethand_sigbus_only",
-        ] {
+        ];
+        let mut terminating = vec!["default_raise", "default_fault"];
+        if cfg!(target_os = "macos") {
+            succeeding.extend(["ignored_rejected", "ignored_sigbus_only"]);
+        } else {
+            succeeding.push("ignored_raise");
+            terminating.push("ignored_fault");
+        }
+        for scenario in succeeding {
             let status = run_child(scenario, signal);
             assert!(status.success(), "{scenario} {signal}: {status}");
         }
-        for scenario in ["default_raise", "default_fault", "ignored_fault"] {
+        for scenario in terminating {
             let status = run_child(scenario, signal);
             let expected = if scenario.ends_with("_fault") {
                 fault_signal()

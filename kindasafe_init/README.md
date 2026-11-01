@@ -24,7 +24,10 @@ selected by their `SA_SIGINFO` flag. The installed handlers inherit the other
 flags of the previous handlers, such as `SA_ONSTACK`. Initialization fails with
 `InitError::UnsupportedPreviousHandler` and leaves the previous handlers in
 place if one of them was installed with `SA_RESETHAND`, because the kernel
-would remove the `kindasafe` handler after the first fault.
+would remove the `kindasafe` handler after the first fault. On macOS it also
+fails if one of them is `SIG_IGN`: the kernel does not report whether a SIGSEGV
+or SIGBUS was sent by another process, which `SIG_IGN` drops, or caused by a
+fault, which must still terminate the process.
 Coordinate initialization with any other code that installs SIGSEGV or SIGBUS
 handlers: querying the previous handler and replacing it require separate
 system calls.

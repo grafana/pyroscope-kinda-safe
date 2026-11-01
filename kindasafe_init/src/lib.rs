@@ -49,7 +49,8 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 ///
 /// # Errors
 /// Returns `UnsupportedPreviousHandler` and changes nothing if a previous
-/// SIGSEGV or SIGBUS handler was installed with `SA_RESETHAND`.
+/// SIGSEGV or SIGBUS handler was installed with `SA_RESETHAND`, or on macOS
+/// is `SIG_IGN`.
 ///
 /// # Safety
 /// The caller must coordinate installation with other code that changes SIGSEGV
@@ -80,6 +81,13 @@ fn init_locked() -> Result<(), InitError> {
     // The kernel resets a SA_RESETHAND handler to SIG_DFL when it first runs.
     // Inherited, the flag would uninstall crash_handler after the first fault.
     if (old_segv.sa_flags | old_bus.sa_flags) & libc::SA_RESETHAND != 0 {
+        return Err(InitError::UnsupportedPreviousHandler);
+    }
+    // SIG_IGN drops a sent signal but must not drop a fault, and macOS si_code
+    // does not tell the two apart. See call_fallback.
+    if cfg!(target_os = "macos")
+        && (old_segv.sa_sigaction == libc::SIG_IGN || old_bus.sa_sigaction == libc::SIG_IGN)
+    {
         return Err(InitError::UnsupportedPreviousHandler);
     }
     install(libc::SIGSEGV, &old_segv, crash_handler, &FALLBACK_SIGSEGV)
@@ -213,6 +221,8 @@ unsafe extern "C" fn crash_handler(
 // caused by a fault: the kernel sets it without regard to the signal's origin.
 // A sent signal mistaken for a fault would be lost, so the signal is always
 // re-raised there, which delivers the default action for a fault as well.
+// SIG_IGN cannot be honored without knowing the origin, so init() rejects it
+// on macOS.
 fn call_fallback(
     sig: libc::c_int,
     info: *mut libc::siginfo_t,
