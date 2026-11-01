@@ -135,16 +135,39 @@ fn call_fallback(
     data: *mut libc::c_void,
     fallback: libc::sigaction,
 ) {
-    if fallback.sa_sigaction == 0 {
+    let disposition = fallback.sa_sigaction;
+
+    // SIG_IGN and SIG_DFL are disposition sentinels, not function pointers.
+    if disposition == libc::SIG_IGN {
+        return;
+    }
+    if disposition == libc::SIG_DFL {
         restore_default_ignal_handler(sig);
-    } else {
+        // Resetting the disposition alone does not apply the default action to
+        // an asynchronously generated signal that is already being handled.
+        // Re-raise it now that the default action is installed. The signal is
+        // normally blocked while this handler runs, so this queues it for
+        // delivery when the handler returns; with SA_NODEFER it terminates
+        // immediately. Either way the default action is applied without
+        // re-entering this handler.
+        unsafe {
+            libc::raise(sig);
+        }
+        return;
+    }
+
+    if fallback.sa_flags & libc::SA_SIGINFO != 0 {
         let handler = unsafe {
             std::mem::transmute::<
                 usize,
                 extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void),
-            >(fallback.sa_sigaction)
+            >(disposition)
         };
         handler(sig, info, data);
+    } else {
+        let handler =
+            unsafe { std::mem::transmute::<usize, extern "C" fn(libc::c_int)>(disposition) };
+        handler(sig);
     }
 }
 unsafe fn fallback(sig: libc::c_int, info: *mut libc::siginfo_t, data: *mut libc::c_void) {
