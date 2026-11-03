@@ -3,41 +3,12 @@
 
 use std::sync::atomic::{AtomicI32, Ordering};
 
+#[path = "common/errno_guard.rs"]
+mod errno_guard;
+use errno_guard::ErrnoGuard;
+
 static SEGV_MASK: AtomicI32 = AtomicI32::new(-1);
 static BUS_MASK: AtomicI32 = AtomicI32::new(-1);
-
-#[cfg(target_os = "linux")]
-fn errno_ptr() -> *mut libc::c_int {
-    unsafe { libc::__errno_location() }
-}
-
-#[cfg(target_os = "macos")]
-fn errno_ptr() -> *mut libc::c_int {
-    unsafe { libc::__error() }
-}
-
-// Test-only guard: libc calls in the callback must leave the interrupted
-// thread's errno unchanged. The test body gets the same cleanup on return.
-struct ErrnoGuard {
-    ptr: *mut libc::c_int,
-    previous: libc::c_int,
-}
-
-impl ErrnoGuard {
-    fn new() -> Self {
-        let ptr = errno_ptr();
-        Self {
-            ptr,
-            previous: unsafe { *ptr },
-        }
-    }
-}
-
-impl Drop for ErrnoGuard {
-    fn drop(&mut self) {
-        unsafe { *self.ptr = self.previous };
-    }
-}
 
 extern "C" fn previous_handler(
     signal: libc::c_int,

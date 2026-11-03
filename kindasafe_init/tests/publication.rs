@@ -6,6 +6,10 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
+#[path = "common/errno_guard.rs"]
+mod errno_guard;
+use errno_guard::ErrnoGuard;
+
 static INTERPOSE: AtomicBool = AtomicBool::new(false);
 static FAIL_SIGNAL: AtomicI32 = AtomicI32::new(0);
 static INSTALLS: AtomicUsize = AtomicUsize::new(0);
@@ -29,11 +33,15 @@ fn calls(signal: libc::c_int) -> &'static AtomicUsize {
 }
 
 fn deliver_on_both_threads(signal: libc::c_int) {
+    let _errno_guard = ErrnoGuard::new();
     let before = calls(signal).load(Ordering::Relaxed);
     assert_eq!(unsafe { libc::raise(signal) }, 0);
-    std::thread::spawn(move || assert_eq!(unsafe { libc::raise(signal) }, 0))
-        .join()
-        .unwrap();
+    std::thread::spawn(move || {
+        let _errno_guard = ErrnoGuard::new();
+        assert_eq!(unsafe { libc::raise(signal) }, 0);
+    })
+    .join()
+    .unwrap();
     assert_eq!(calls(signal).load(Ordering::Relaxed), before + 2);
 }
 
@@ -46,6 +54,7 @@ unsafe extern "C" fn sigaction(
     action: *const libc::sigaction,
     old: *mut libc::sigaction,
 ) -> libc::c_int {
+    let errno_guard = ErrnoGuard::new();
     type Sigaction = unsafe extern "C" fn(
         libc::c_int,
         *const libc::sigaction,
@@ -62,6 +71,7 @@ unsafe extern "C" fn sigaction(
         INSTALLS.fetch_add(1, Ordering::Relaxed);
         deliver_on_both_threads(signal);
         if FAIL_SIGNAL.load(Ordering::Relaxed) == signal {
+            errno_guard.disarm();
             unsafe { *libc::__errno_location() = libc::EINVAL };
             return -1;
         }
@@ -70,11 +80,15 @@ unsafe extern "C" fn sigaction(
     if installing && result == 0 {
         deliver_on_both_threads(signal);
     }
+    if result != 0 {
+        errno_guard.disarm();
+    }
     result
 }
 
 #[test]
 fn installation_boundaries() {
+    let _errno_guard = ErrnoGuard::new();
     const CHILD_MODE: &str = "KINDASAFE_TEST_FAIL_SIGNAL";
     let Ok(fail_signal) = std::env::var(CHILD_MODE) else {
         // Each case needs fresh process-global signal and initialization state.
@@ -124,6 +138,7 @@ fn installation_boundaries() {
             let start = &start;
             let expected = &expected;
             scope.spawn(move || {
+                let _errno_guard = ErrnoGuard::new();
                 start.wait();
                 // SAFETY: previous_handler is a static SA_SIGINFO handler, and
                 // its installation finished before these threads were started.
@@ -141,6 +156,7 @@ fn installation_boundaries() {
     std::thread::scope(|scope| {
         for _ in 0..4 {
             scope.spawn(|| {
+                let _errno_guard = ErrnoGuard::new();
                 // SAFETY: The same fallback remains valid; only init() changes
                 // signal handling in this child after the initial setup.
                 assert_eq!(unsafe { kindasafe_init::init() }, expected);
