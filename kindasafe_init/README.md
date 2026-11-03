@@ -11,8 +11,9 @@ Installs SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover f
 // Previous handlers remain valid for as long as kindasafe may call them.
 unsafe { kindasafe_init::init() }.expect("failed to initialize kindasafe");
 
-// Now kindasafe reads will recover from faults
-let result = kindasafe::u64(some_address);
+// SAFETY: The recovery handlers are still installed, and SIGSEGV and SIGBUS
+// are unblocked on this thread. The result will be treated as untrusted bytes.
+let result = unsafe { kindasafe::u64(some_address) };
 ```
 
 Initialization is serialized and its result is cached, including failures. The
@@ -31,6 +32,11 @@ Initialization also fails on macOS if one of the previous handlers is
 `SIG_IGN`: the kernel does not report whether a SIGSEGV or SIGBUS was sent by
 another process, which `SIG_IGN` drops, or caused by a fault, which must still
 terminate the process.
+The installed handlers also keep each previous handler's signal mask and add
+`SIGPROF`, so sampling cannot interrupt recovery or a directly chained previous
+handler. This does not ensure SIGSEGV and SIGBUS are unblocked when sampling
+starts; a sampler must check the current thread before a protected read.
+
 Coordinate initialization with any other code that installs SIGSEGV or SIGBUS
 handlers: querying the previous handler and replacing it require separate
 system calls.

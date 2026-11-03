@@ -45,7 +45,10 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// Install the handlers once, preserving the previous handlers as fallbacks.
 ///
 /// Calls to this function are serialized. The installed handlers inherit the
-/// flags of the previous handlers, such as `SA_ONSTACK` and `SA_NODEFER`.
+/// flags and signal masks of the previous handlers, such as `SA_ONSTACK` and
+/// `SA_NODEFER`, and also block `SIGPROF` while they run or call a previous
+/// handler. A sampling handler must still check that SIGSEGV and SIGBUS are
+/// unblocked on its thread before attempting a protected read.
 ///
 /// # Errors
 /// Returns `UnsupportedPreviousHandler` and changes nothing if a previous
@@ -294,6 +297,9 @@ fn install(
         let mut new: libc::sigaction = *old;
         new.sa_sigaction = handler as usize;
         new.sa_flags |= libc::SA_RESTART | libc::SA_SIGINFO;
+        if libc::sigaddset(&mut new.sa_mask, libc::SIGPROF) != 0 {
+            return Err(());
+        }
         fallback.store(old);
         if libc::sigaction(signal, &new, std::ptr::null_mut()) != 0 {
             return Err(());

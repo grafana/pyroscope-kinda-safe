@@ -16,7 +16,8 @@ This is a `no_std` crate providing the core read primitives. Use [`kindasafe_ini
 unsafe { kindasafe_init::init() }.expect("failed to init");
 
 // Read a u64 from a potentially-invalid address
-// SAFETY: init() succeeded above, and the result is validated before use
+// SAFETY: init() succeeded, its handlers remain installed, and SIGSEGV and
+// SIGBUS are unblocked on this thread. The result is validated before use
 // because the target may be modified concurrently.
 let value = unsafe { kindasafe::u64(some_address) };
 match value {
@@ -24,6 +25,10 @@ match value {
     Err(e) => println!("fault: signal {}", e.signal),
 }
 ```
+
+When reading from a SIGPROF sampling handler, check that SIGSEGV and SIGBUS
+are unblocked on that thread. The recovery handlers block SIGPROF while they
+run, but other code may still block recovery signals before sampling starts.
 
 ## Supported architectures
 

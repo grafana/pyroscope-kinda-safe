@@ -17,6 +17,7 @@ pub type Ptr = u64;
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
+/// SIGSEGV and SIGBUS must also be unblocked on the calling thread.
 ///
 /// The read is a plain, non-atomic load and recovery only covers faults. Other
 /// threads may be writing `at` concurrently, so the result can be stale or
@@ -45,6 +46,7 @@ pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
+/// SIGSEGV and SIGBUS must also be unblocked on the calling thread.
 ///
 /// The copy is byte-wise and not atomic as a whole. Other threads may be
 /// writing the source concurrently, so the result can be stale or torn and
