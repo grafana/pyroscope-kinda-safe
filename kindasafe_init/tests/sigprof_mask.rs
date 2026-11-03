@@ -6,11 +6,45 @@ use std::sync::atomic::{AtomicI32, Ordering};
 static SEGV_MASK: AtomicI32 = AtomicI32::new(-1);
 static BUS_MASK: AtomicI32 = AtomicI32::new(-1);
 
+#[cfg(target_os = "linux")]
+fn errno_ptr() -> *mut libc::c_int {
+    unsafe { libc::__errno_location() }
+}
+
+#[cfg(target_os = "macos")]
+fn errno_ptr() -> *mut libc::c_int {
+    unsafe { libc::__error() }
+}
+
+// Test-only guard: libc calls in the callback must leave the interrupted
+// thread's errno unchanged. The test body gets the same cleanup on return.
+struct ErrnoGuard {
+    ptr: *mut libc::c_int,
+    previous: libc::c_int,
+}
+
+impl ErrnoGuard {
+    fn new() -> Self {
+        let ptr = errno_ptr();
+        Self {
+            ptr,
+            previous: unsafe { *ptr },
+        }
+    }
+}
+
+impl Drop for ErrnoGuard {
+    fn drop(&mut self) {
+        unsafe { *self.ptr = self.previous };
+    }
+}
+
 extern "C" fn previous_handler(
     signal: libc::c_int,
     _info: *mut libc::siginfo_t,
     _context: *mut libc::c_void,
 ) {
+    let _errno_guard = ErrnoGuard::new();
     let (inherited, other, result) = match signal {
         libc::SIGSEGV => (libc::SIGUSR1, libc::SIGUSR2, &SEGV_MASK),
         libc::SIGBUS => (libc::SIGUSR2, libc::SIGUSR1, &BUS_MASK),
@@ -62,6 +96,7 @@ fn assert_thread_mask_restored() {
 
 #[test]
 fn sigprof_is_blocked_during_recovery_and_chained_handlers() {
+    let _errno_guard = ErrnoGuard::new();
     unsafe {
         for (signal, inherited) in [
             (libc::SIGSEGV, libc::SIGUSR1),
