@@ -6,6 +6,12 @@ Uses naked assembly functions to read memory, with crash recovery via SIGSEGV/SI
 
 This is a `no_std` crate providing the core read primitives. Use [`kindasafe_init`](https://crates.io/crates/kindasafe_init) to install the required signal handlers.
 
+AddressSanitizer builds explicitly check the source range after successful `u64`
+and `slice` reads, since naked assembly bypasses compiler instrumentation. Poisoned
+reads produce an ASAN report; `ASAN_OPTIONS=halt_on_error=0` allows continuing after
+the report. Faulting reads still return `ReadMemError`. Normal builds contain no
+ASAN checks or runtime dependency.
+
 ## Usage
 
 ```rust

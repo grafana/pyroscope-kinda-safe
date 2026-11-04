@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(kindasafe_asan)]
+mod asan;
+
 #[derive(Debug, PartialEq)]
 pub struct ReadMemError {
     pub signal: u64,
@@ -29,10 +32,22 @@ pub type Ptr = u64;
 pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     let res = arch::u64(at);
     if res.signal == 0 {
+        #[cfg(kindasafe_asan)]
+        asan::report_poisoned_load(at, core::mem::size_of::<u64>());
         Ok(res.value)
     } else {
+        #[cfg(kindasafe_asan)]
+        asan::report_faulting_load(at, core::mem::size_of::<u64>());
         Err(ReadMemError { signal: res.signal })
     }
+}
+
+/// Checks recovery using address 239 without reporting this deliberate
+/// fault to ASAN. The raw load stays private; ordinary reads use [`u64`].
+///
+/// The recovery handlers must already be installed and SIGSEGV/SIGBUS unblocked.
+pub fn sanity_check() -> bool {
+    arch::u64(239).signal != 0
 }
 
 /// Copies `buf.len()` bytes from `at` into `buf`, returning `Err` instead of
@@ -58,8 +73,12 @@ pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
 pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
     if res.signal == 0 {
+        #[cfg(kindasafe_asan)]
+        asan::report_poisoned_load(at, buf.len());
         Ok(())
     } else {
+        #[cfg(kindasafe_asan)]
+        asan::report_faulting_load(at, buf.len());
         Err(ReadMemError { signal: res.signal })
     }
 }

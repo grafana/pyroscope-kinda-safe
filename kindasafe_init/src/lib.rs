@@ -315,32 +315,16 @@ pub fn restore_default_ignal_handler(sig: libc::c_int) {
 
 /// Sanity check that kindasafe crash recovery is working.
 ///
-/// Maps a PROT_NONE page, attempts to read it via `kindasafe::u64`,
-/// and verifies the read returns an error (SIGSEGV) instead of crashing.
-/// Unmaps the page before returning.
+/// Attempts to read address 239 using kindasafe's private raw load and
+/// verifies recovery without reporting this deliberate fault to ASAN.
 ///
 /// Returns `Ok(())` if the sanity check passes, `Err(SanityCheckFailed)` if
 /// the read unexpectedly succeeded (meaning crash recovery is broken).
 pub fn sanity_check() -> Result<(), InitError> {
-    unsafe {
-        let page = libc::mmap(
-            std::ptr::null_mut(),
-            4096,
-            libc::PROT_NONE,
-            libc::MAP_PRIVATE | libc::MAP_ANON,
-            -1,
-            0,
-        );
-        if page == libc::MAP_FAILED {
-            return Err(InitError::SanityCheckFailed);
-        }
-        let addr = page as u64;
-        let result = kindasafe::u64(addr);
-        libc::munmap(page, 4096);
-        match result {
-            Err(_) => Ok(()),
-            Ok(_) => Err(InitError::SanityCheckFailed),
-        }
+    if kindasafe::sanity_check() {
+        Ok(())
+    } else {
+        Err(InitError::SanityCheckFailed)
     }
 }
 
