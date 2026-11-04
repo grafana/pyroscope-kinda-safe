@@ -76,6 +76,7 @@ fn u64_unaligned() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_sigsegv() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
@@ -91,6 +92,7 @@ fn u64_sigsegv() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_sigbus() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
@@ -106,6 +108,7 @@ fn u64_sigbus() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_unaligned_page_boundary() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
@@ -171,6 +174,7 @@ fn slice_preserves_destination_bounds() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigsegv() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
@@ -187,6 +191,7 @@ fn vec_sigsegv() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigbus() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
@@ -203,6 +208,7 @@ fn vec_sigbus() -> TestResult {
     Ok(())
 }
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigsegv_page_boundary() -> TestResult {
     let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
