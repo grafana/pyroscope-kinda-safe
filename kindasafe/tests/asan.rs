@@ -70,7 +70,12 @@ fn probe() {
                 assert_eq!(out, 7u64.to_ne_bytes());
                 kindasafe::slice(&mut [], (at + 8) as u64).unwrap();
                 kindasafe::slice(&mut [], 0).unwrap();
+            }
+            "faulting_word" => {
                 assert!(kindasafe::u64(0).is_err());
+            }
+            "faulting_slice" => {
+                let mut out = [0; 8];
                 assert!(kindasafe::slice(&mut out, 0).is_err());
             }
             _ => panic!("unknown probe {case}"),
@@ -132,7 +137,27 @@ fn reports_poisoned_reads() {
 }
 
 #[test]
-fn valid_empty_and_faulting_reads_do_not_report_poison() {
+fn valid_and_empty_reads_do_not_report() {
     let (_, stderr) = run_probe("valid");
     assert!(!stderr.contains("AddressSanitizer"), "{stderr}");
+}
+
+#[test]
+fn reports_faulting_reads_after_recovery() {
+    for case in ["faulting_word", "faulting_slice"] {
+        let (_, stderr) = run_probe(case);
+        assert_eq!(
+            stderr.matches("ERROR: AddressSanitizer").count(),
+            1,
+            "{case}: {stderr}"
+        );
+        assert!(
+            stderr.contains("READ of size 8 at 0x000000000000 "),
+            "{case}: {stderr}"
+        );
+        assert!(
+            stderr.contains("AddressSanitizer: unknown-crash"),
+            "{case}: {stderr}"
+        );
+    }
 }

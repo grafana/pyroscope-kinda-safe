@@ -30,10 +30,25 @@ pub type Ptr = u64;
 /// `&mut` or other exclusive borrow to, unless the address was derived from
 /// that borrow and exposed.
 pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
+    let result = unsafe { recovery_probe(at) };
+    #[cfg(kindasafe_asan)]
+    match result {
+        Ok(_) => asan::report_poisoned_load(at, core::mem::size_of::<u64>()),
+        Err(_) => asan::report_faulting_load(at, core::mem::size_of::<u64>()),
+    }
+    result
+}
+
+/// Deliberately exercises fault recovery during initialization, without
+/// reporting the expected fault to ASAN. Only the initialization self-check
+/// should use this entry point; profiler reads must use [`u64`].
+///
+/// # Safety
+/// The same preconditions as [`u64`] apply.
+#[doc(hidden)]
+pub unsafe fn recovery_probe(at: Ptr) -> Result<Ptr, ReadMemError> {
     let res = arch::u64(at);
     if res.signal == 0 {
-        #[cfg(kindasafe_asan)]
-        asan::report_poisoned_load(at, core::mem::size_of::<u64>());
         Ok(res.value)
     } else {
         Err(ReadMemError { signal: res.signal })
@@ -67,6 +82,8 @@ pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
         asan::report_poisoned_load(at, buf.len());
         Ok(())
     } else {
+        #[cfg(kindasafe_asan)]
+        asan::report_faulting_load(at, buf.len());
         Err(ReadMemError { signal: res.signal })
     }
 }
