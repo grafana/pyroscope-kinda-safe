@@ -8,10 +8,11 @@ This workspace contains two crates:
 - [`kindasafe_init`](kindasafe_init/) — signal handler initialization
 
 Initialize recovery before unwinding, keep its SIGSEGV/SIGBUS handlers installed,
-and leave both signals unblocked on the reading thread. Ordinary reads report
-faulting addresses in ASAN builds after recovery returns. Initialization's
-deliberate protected-page self-check uses `recovery_probe` so it does not produce
-an ASAN report. Successful reads still load memory directly without syscalls.
+and leave both signals unblocked on the reading thread. Reads report faulting
+addresses in ASAN builds after recovery returns. The deliberate protected-page
+`sanity_check` also reports when called under ASAN; dedicated ASAN tests verify
+recovery in that configuration. Successful reads still load memory directly
+without syscalls.
 
 ## License
 

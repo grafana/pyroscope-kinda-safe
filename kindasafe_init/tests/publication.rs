@@ -167,7 +167,7 @@ fn installation_boundaries() {
     for signal in [libc::SIGSEGV, libc::SIGBUS] {
         deliver_on_both_threads(signal);
     }
-    if fail_signal != libc::SIGSEGV {
+    if fail_signal != libc::SIGSEGV && !cfg!(kindasafe_init_asan) {
         assert_eq!(kindasafe_init::sanity_check(), Ok(()));
     }
 }

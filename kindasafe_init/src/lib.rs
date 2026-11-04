@@ -315,7 +315,7 @@ pub fn restore_default_ignal_handler(sig: libc::c_int) {
 
 /// Sanity check that kindasafe crash recovery is working.
 ///
-/// Maps a PROT_NONE page, attempts to read it via `kindasafe::recovery_probe`,
+/// Maps a PROT_NONE page, attempts to read it via `kindasafe::u64`,
 /// and verifies the read returns an error (SIGSEGV) instead of crashing.
 /// Unmaps the page before returning.
 ///
@@ -335,7 +335,7 @@ pub fn sanity_check() -> Result<(), InitError> {
             return Err(InitError::SanityCheckFailed);
         }
         let addr = page as u64;
-        let result = kindasafe::recovery_probe(addr);
+        let result = kindasafe::u64(addr);
         libc::munmap(page, 4096);
         match result {
             Err(_) => Ok(()),
@@ -366,6 +366,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(kindasafe_init_asan, ignore = "deliberate faults are reported by ASAN")]
     fn test_sanity_check() {
         let _errno_guard = errno_guard::ErrnoGuard::new();
         // SAFETY: These tests only change signal handling through init().

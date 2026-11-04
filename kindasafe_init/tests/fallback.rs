@@ -114,11 +114,13 @@ fn child(scenario: &str, signal: libc::c_int) {
             unsafe { kindasafe_init::init() }.unwrap();
             raise(signal);
             raise(signal);
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
         }
         "ignored_fault" => {
             install(libc::SIG_IGN, 0);
             unsafe { kindasafe_init::init() }.unwrap();
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             fault_outside_kindasafe();
             unreachable!("ignored hardware fault must terminate the process");
@@ -126,6 +128,7 @@ fn child(scenario: &str, signal: libc::c_int) {
         "default_raise" => {
             install(libc::SIG_DFL, 0);
             unsafe { kindasafe_init::init() }.unwrap();
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             raise(signal);
             unreachable!("SIG_DFL must terminate the process");
@@ -133,6 +136,7 @@ fn child(scenario: &str, signal: libc::c_int) {
         "default_fault" => {
             install(libc::SIG_DFL, 0);
             unsafe { kindasafe_init::init() }.unwrap();
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             fault_outside_kindasafe();
             unreachable!("SIG_DFL must terminate the process");
@@ -143,6 +147,7 @@ fn child(scenario: &str, signal: libc::c_int) {
             raise(signal);
             assert_eq!(CALLS.load(Ordering::Relaxed), 1);
             assert_eq!(LAST_SIGNAL.load(Ordering::Relaxed), signal);
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             assert_eq!(CALLS.load(Ordering::Relaxed), 1);
         }
@@ -152,6 +157,7 @@ fn child(scenario: &str, signal: libc::c_int) {
             raise(signal);
             assert_eq!(CALLS.load(Ordering::Relaxed), 1);
             assert_eq!(LAST_SIGNAL.load(Ordering::Relaxed), signal);
+            #[cfg(not(kindasafe_init_asan))]
             assert_eq!(kindasafe_init::sanity_check(), Ok(()));
             assert_eq!(CALLS.load(Ordering::Relaxed), 1);
         }
