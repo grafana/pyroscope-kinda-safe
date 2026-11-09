@@ -80,6 +80,35 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
     }
 }
 
+/// Reads a `u8` from `at`, returning `Err` instead of crashing when the
+/// address is not readable.
+///
+/// The load reads exactly one byte, returned as-is, whatever the memory contains.
+///
+/// # Safety
+/// `kindasafe_init::init()` must have returned `Ok` in this process and the
+/// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
+/// fault terminates the process instead of returning `Err`.
+/// SIGSEGV and SIGBUS must also be unblocked on the calling thread.
+///
+/// The read is a plain, non-atomic load and recovery only covers faults. Other
+/// threads may be writing `at` concurrently, so the result can be stale
+/// and must be treated as untrusted data.
+///
+/// `at` must not refer to memory that Rust code in this program holds a live
+/// `&mut` or other exclusive borrow to, unless the address was derived from
+/// that borrow and exposed.
+pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
+    let res = arch::u8(at);
+    if res.signal == 0 {
+        #[cfg(kindasafe_asan)]
+        asan::report_poisoned_load(at, core::mem::size_of::<u8>());
+        Ok(res.value as u8)
+    } else {
+        Err(ReadMemError { signal: res.signal })
+    }
+}
+
 /// Copies `buf.len()` bytes from `at` into `buf`, returning `Err` instead of
 /// crashing when any source byte is not readable.
 ///
@@ -123,7 +152,7 @@ pub struct CrashPoint {
     pub signal_reg: Reg,
     pub skip: usize,
 }
-const CRASH_POINTS_COUNT: usize = 3;
+const CRASH_POINTS_COUNT: usize = 4;
 
 #[derive(Copy, Clone)]
 pub struct CrashPoints {
@@ -171,6 +200,15 @@ mod arch {
         )
     }
 
+    #[unsafe(naked)]
+    pub extern "sysv64" fn u8(_at: u64) -> ScalarResult {
+        core::arch::naked_asm!(
+            "movzx eax, byte ptr [rdi]", // offset 0: load 8 bits, zero-extending into rax
+            "xor edx, edx",              // offset 3: signal = 0 (success)
+            "ret",                       // offset 5
+        )
+    }
+
     #[repr(C)]
     pub struct VecResult {
         pub signal: u64,
@@ -202,6 +240,11 @@ mod arch {
                     pc: u32 as *const () as usize,
                     signal_reg: crate::Reg::Rdx,
                     skip: 4,
+                },
+                crate::CrashPoint {
+                    pc: u8 as *const () as usize,
+                    signal_reg: crate::Reg::Rdx,
+                    skip: 5,
                 },
                 crate::CrashPoint {
                     pc: slice as *const () as usize + 3, // +3 for 48 89 D1 	mov 	rcx, rdx
@@ -240,6 +283,15 @@ mod arch {
         )
     }
 
+    #[unsafe(naked)]
+    pub extern "C" fn u8(_at: u64) -> ScalarResult {
+        core::arch::naked_asm!(
+            "ldrb w0, [x0]", // offset 0: load 8 bits, zero-extending into x0
+            "mov x1, #0",    // offset 4: signal = 0 (success)
+            "ret",           // offset 8
+        )
+    }
+
     #[repr(C)]
     pub struct VecResult {
         pub signal: u64,
@@ -274,6 +326,11 @@ mod arch {
                 },
                 crate::CrashPoint {
                     pc: u32 as *const () as usize,
+                    signal_reg: crate::Reg::X1,
+                    skip: 8,
+                },
+                crate::CrashPoint {
+                    pc: u8 as *const () as usize,
                     signal_reg: crate::Reg::X1,
                     skip: 8,
                 },

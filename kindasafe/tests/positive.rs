@@ -1,4 +1,4 @@
-use kindasafe::{Ptr, slice, u32, u64};
+use kindasafe::{Ptr, slice, u8, u32, u64};
 use std::fmt;
 
 // SAFETY: These tests only change signal handling through init(). Before that,
@@ -174,6 +174,67 @@ fn u32_sigbus() -> TestResult {
 }
 
 #[test]
+fn u8_sigsegv() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+    trigger_sigsegv(|p| {
+        assert_eq!(
+            unsafe { u8(p) },
+            Err(kindasafe::ReadMemError {
+                signal: PROT_NONE_SIGNAL
+            })
+        );
+    });
+    Ok(())
+}
+
+#[test]
+fn u8_sigbus() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+    trigger_sigbus(|p| {
+        assert_eq!(
+            unsafe { u8(p) },
+            Err(kindasafe::ReadMemError {
+                signal: libc::SIGBUS as u64
+            })
+        );
+    });
+    Ok(())
+}
+
+#[test]
+fn u8_values() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+
+    let values = [0u8, 1, 0x7f, 0x80, 0xff];
+    for (offset, expected) in values.iter().enumerate() {
+        assert_eq!(
+            unsafe { u8(values.as_ptr() as Ptr + offset as Ptr) }?,
+            *expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn u8_page_boundary() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+
+    trigger_sigsegv_page_boundary(|p, ps| {
+        let boundary = p + ps as Ptr;
+        // The last readable byte must succeed without touching the guard page.
+        assert_eq!(unsafe { u8(boundary - 1) }, Ok(0x61));
+        assert_eq!(
+            unsafe { u8(boundary) },
+            Err(kindasafe::ReadMemError {
+                signal: PROT_NONE_SIGNAL
+            })
+        );
+        assert_eq!(unsafe { u8(boundary - 1) }, Ok(0x61));
+    });
+    Ok(())
+}
+
+#[test]
 fn u32_unaligned_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -299,6 +360,7 @@ fn vec_sigsegv_page_boundary() -> TestResult {
 const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
     (kindasafe::Reg::Rdx, &[0x48, 0x8B, 0x07]), // mov rax, [rdi]
     (kindasafe::Reg::Rdx, &[0x8B, 0x07]),       // mov eax, [rdi]
+    (kindasafe::Reg::Rdx, &[0x0F, 0xB6, 0x07]), // movzx eax, byte ptr [rdi]
     (kindasafe::Reg::Rax, &[0xF3, 0xA4]),       // rep movsb
 ];
 #[cfg(target_arch = "x86_64")]
@@ -308,6 +370,7 @@ const RET: &[u8] = &[0xC3];
 const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
     (kindasafe::Reg::X1, &0xF9400000u32.to_le_bytes()), // ldr x0, [x0]
     (kindasafe::Reg::X1, &0xB9400000u32.to_le_bytes()), // ldr w0, [x0]
+    (kindasafe::Reg::X1, &0x39400000u32.to_le_bytes()), // ldrb w0, [x0]
     (kindasafe::Reg::X0, &0x38401423u32.to_le_bytes()), // ldrb w3, [x1], #1
 ];
 #[cfg(target_arch = "aarch64")]

@@ -49,6 +49,9 @@ fn probe() {
             "unaligned_word" => {
                 kindasafe::u64((at + 4) as u64).unwrap();
             }
+            "u8" => {
+                kindasafe::u8((at + 8) as u64).unwrap();
+            }
             "u32" => {
                 kindasafe::u32((at + 8) as u64).unwrap();
             }
@@ -71,6 +74,10 @@ fn probe() {
             }
             "valid" => {
                 assert_eq!(kindasafe::u64(at as u64).unwrap(), 7);
+                assert_eq!(kindasafe::u8(at as u64).unwrap(), 7);
+                // A one-byte read must not include the following poisoned byte.
+                assert_eq!(kindasafe::u8((at + 7) as u64).unwrap(), 0);
+                assert!(kindasafe::u8(0).is_err());
                 assert_eq!(kindasafe::u32(at as u64).unwrap(), 7);
                 // Poison starts immediately after these four readable bytes.
                 assert_eq!(kindasafe::u32((at + 4) as u64).unwrap(), 0);
@@ -120,6 +127,7 @@ fn reports_poisoned_reads() {
     for (case, size) in [
         ("word", 8),
         ("unaligned_word", 4),
+        ("u8", 1),
         ("u32", 4),
         ("unaligned_u32", 2),
         ("slice", 16),
