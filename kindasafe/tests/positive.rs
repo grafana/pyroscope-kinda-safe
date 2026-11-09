@@ -1,4 +1,4 @@
-use kindasafe::{Ptr, slice, u64};
+use kindasafe::{Ptr, slice, u32, u64};
 use std::fmt;
 
 // SAFETY: These tests only change signal handling through init(). Before that,
@@ -124,6 +124,83 @@ fn u64_unaligned_page_boundary() -> TestResult {
 }
 
 #[test]
+fn u32_aligned() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+
+    for value in [0u32, 1, 0x8000_0000, 0xbeba_feca, u32::MAX] {
+        let at = &value as *const u32 as Ptr;
+        assert_eq!(unsafe { u32(at) }?, value);
+    }
+    Ok(())
+}
+
+#[test]
+fn u32_unaligned() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+
+    let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde];
+    let x_ptr = x.as_ptr() as Ptr + 1;
+    let i = unsafe { u32(x_ptr) }?;
+    assert_eq!(i, 0xdebebafe);
+    Ok(())
+}
+
+#[test]
+fn u32_sigsegv() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+    trigger_sigsegv(|p| {
+        assert_eq!(
+            unsafe { u32(p) },
+            Err(kindasafe::ReadMemError {
+                signal: PROT_NONE_SIGNAL
+            })
+        );
+    });
+    Ok(())
+}
+
+#[test]
+fn u32_sigbus() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+    trigger_sigbus(|p| {
+        assert_eq!(
+            unsafe { u32(p) },
+            Err(kindasafe::ReadMemError {
+                signal: libc::SIGBUS as u64
+            })
+        );
+    });
+    Ok(())
+}
+
+#[test]
+fn u32_unaligned_page_boundary() -> TestResult {
+    unsafe { kindasafe_init::init() }?;
+
+    trigger_sigsegv_page_boundary(|p, ps| {
+        let boundary = ps as u64;
+        assert_eq!(unsafe { u32(p) }, Ok(0x61616161));
+        assert_eq!(unsafe { u32(p + boundary - 0x4) }, Ok(0x61616161));
+        for readable in 1..4 {
+            assert_eq!(
+                unsafe { u32(p + boundary - readable) },
+                Err(kindasafe::ReadMemError {
+                    signal: PROT_NONE_SIGNAL
+                })
+            );
+            assert_eq!(unsafe { u32(p + boundary - 4) }, Ok(0x61616161));
+        }
+        assert_eq!(
+            unsafe { u32(p + boundary) },
+            Err(kindasafe::ReadMemError {
+                signal: PROT_NONE_SIGNAL
+            })
+        );
+    });
+    Ok(())
+}
+
+#[test]
 fn vec_aligned() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
@@ -219,22 +296,20 @@ fn vec_sigsegv_page_boundary() -> TestResult {
 }
 
 #[cfg(target_arch = "x86_64")]
-fn expected_fault_instruction(reg: kindasafe::Reg) -> &'static [u8] {
-    match reg {
-        kindasafe::Reg::Rdx => &[0x48, 0x8B, 0x07], // mov rax, [rdi]
-        kindasafe::Reg::Rax => &[0xF3, 0xA4],       // rep movsb
-    }
-}
+const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
+    (kindasafe::Reg::Rdx, &[0x48, 0x8B, 0x07]), // mov rax, [rdi]
+    (kindasafe::Reg::Rdx, &[0x8B, 0x07]),       // mov eax, [rdi]
+    (kindasafe::Reg::Rax, &[0xF3, 0xA4]),       // rep movsb
+];
 #[cfg(target_arch = "x86_64")]
 const RET: &[u8] = &[0xC3];
 
 #[cfg(target_arch = "aarch64")]
-fn expected_fault_instruction(reg: kindasafe::Reg) -> &'static [u8] {
-    match reg {
-        kindasafe::Reg::X1 => &const { 0xF9400000u32.to_le_bytes() }, // ldr x0, [x0]
-        kindasafe::Reg::X0 => &const { 0x38401423u32.to_le_bytes() }, // ldrb w3, [x1], #1
-    }
-}
+const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
+    (kindasafe::Reg::X1, &0xF9400000u32.to_le_bytes()), // ldr x0, [x0]
+    (kindasafe::Reg::X1, &0xB9400000u32.to_le_bytes()), // ldr w0, [x0]
+    (kindasafe::Reg::X0, &0x38401423u32.to_le_bytes()), // ldrb w3, [x1], #1
+];
 #[cfg(target_arch = "aarch64")]
 const RET: &[u8] = &0xD65F03C0u32.to_le_bytes();
 
@@ -243,9 +318,9 @@ const RET: &[u8] = &0xD65F03C0u32.to_le_bytes();
 #[test]
 fn crash_points_point_at_faulting_instruction_and_skip_to_ret() {
     let points = kindasafe::crash_points().crash_points;
-    assert_ne!(points[0].signal_reg, points[1].signal_reg);
-    for point in points {
-        let fault = expected_fault_instruction(point.signal_reg);
+    assert_eq!(points.len(), FAULT_INSTRUCTIONS.len());
+    for (point, &(reg, fault)) in points.into_iter().zip(FAULT_INSTRUCTIONS) {
+        assert_eq!(point.signal_reg, reg);
         let at_pc = unsafe { std::slice::from_raw_parts(point.pc as *const u8, fault.len()) };
         assert_eq!(
             at_pc, fault,
