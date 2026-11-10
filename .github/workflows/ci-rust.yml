@@ -78,7 +78,7 @@ jobs:
 
   test-macos:
     name: cargo test (${{ matrix.target }})
-    runs-on: ${{ github.repository_owner == 'grafana' && 'macos-14' || 'macos-latest' }}
+    runs-on: ${{ github.repository_owner == 'grafana' && 'macos-15' || 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
