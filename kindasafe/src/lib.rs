@@ -76,6 +76,8 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
         asan::report_poisoned_load(at, core::mem::size_of::<u32>());
         Ok(res.value as u32)
     } else {
+        #[cfg(kindasafe_asan)]
+        asan::report_faulting_load(at, core::mem::size_of::<u32>());
         Err(ReadMemError { signal: res.signal })
     }
 }
@@ -105,6 +107,8 @@ pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
         asan::report_poisoned_load(at, core::mem::size_of::<u8>());
         Ok(res.value as u8)
     } else {
+        #[cfg(kindasafe_asan)]
+        asan::report_faulting_load(at, core::mem::size_of::<u8>());
         Err(ReadMemError { signal: res.signal })
     }
 }
