@@ -1,10 +1,6 @@
 use kindasafe::{Ptr, slice, u64};
 use std::fmt;
 
-#[path = "common/errno_guard.rs"]
-mod errno_guard;
-use errno_guard::ErrnoGuard;
-
 // SAFETY: These tests only change signal handling through init(). Before that,
 // signals use the default action or the test runtime's static handlers.
 type TestResult<T = ()> = std::result::Result<T, TestError>;
@@ -44,7 +40,6 @@ const PROT_NONE_SIGNAL: u64 = libc::SIGBUS as u64;
 
 #[test]
 fn test_init() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     unsafe { kindasafe_init::init() }?;
     Ok(())
@@ -52,7 +47,6 @@ fn test_init() -> TestResult {
 
 #[test]
 fn u64_aligned() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
@@ -65,7 +59,6 @@ fn u64_aligned() -> TestResult {
 
 #[test]
 fn u64_unaligned() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
 
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0x00];
@@ -78,7 +71,6 @@ fn u64_unaligned() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_sigsegv() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
         assert_eq!(
@@ -94,7 +86,6 @@ fn u64_sigsegv() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_sigbus() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         assert_eq!(
@@ -110,7 +101,6 @@ fn u64_sigbus() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u64_unaligned_page_boundary() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
@@ -135,7 +125,6 @@ fn u64_unaligned_page_boundary() -> TestResult {
 
 #[test]
 fn vec_aligned() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef];
@@ -146,7 +135,6 @@ fn vec_aligned() -> TestResult {
 
 #[test]
 fn vec_unaligned() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     let mut buf = vec![0u8; 8];
     let x: Vec<u8> = vec![0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef, 0xcc];
@@ -159,7 +147,6 @@ fn vec_unaligned() -> TestResult {
 
 #[test]
 fn slice_preserves_destination_bounds() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     let source = *b"hello\0";
     let at = source.as_ptr() as Ptr;
@@ -176,7 +163,6 @@ fn slice_preserves_destination_bounds() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigsegv() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
         let mut buf = [0u8; 8];
@@ -193,7 +179,6 @@ fn vec_sigsegv() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigbus() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
         let mut buf = [0u8; 8];
@@ -210,7 +195,6 @@ fn vec_sigbus() -> TestResult {
 #[test]
 #[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn vec_sigsegv_page_boundary() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
 
     trigger_sigsegv_page_boundary(|p, ps| {
@@ -285,7 +269,6 @@ fn crash_points_point_at_faulting_instruction_and_skip_to_ret() {
 #[cfg(target_arch = "x86_64")]
 #[test]
 fn slice_copies_more_than_4gib() -> TestResult {
-    let _errno_guard = ErrnoGuard::new();
     unsafe { kindasafe_init::init() }?;
     const CHUNK: usize = 64 << 20;
     const N: usize = (1 << 32) + 1;

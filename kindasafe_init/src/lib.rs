@@ -332,16 +332,8 @@ pub fn sanity_check() -> Result<(), InitError> {
 mod tests {
     use super::*;
 
-    mod errno_guard {
-        include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/common/errno_guard.rs"
-        ));
-    }
-
     #[test]
     fn test_init_idempotent() {
-        let _errno_guard = errno_guard::ErrnoGuard::new();
         // SAFETY: These tests only change signal handling through init().
         assert!(unsafe { init() }.is_ok());
         assert!(unsafe { init() }.is_ok());
@@ -351,7 +343,6 @@ mod tests {
 
     #[test]
     fn test_sanity_check() {
-        let _errno_guard = errno_guard::ErrnoGuard::new();
         // SAFETY: These tests only change signal handling through init().
         assert!(unsafe { init() }.is_ok());
         assert!(sanity_check().is_ok());

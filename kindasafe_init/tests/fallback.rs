@@ -9,10 +9,6 @@
 use std::os::unix::process::ExitStatusExt;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
-#[path = "common/errno_guard.rs"]
-mod errno_guard;
-use errno_guard::ErrnoGuard;
-
 const SCENARIO: &str = "KINDASAFE_TEST_FALLBACK_SCENARIO";
 const SIGNAL: &str = "KINDASAFE_TEST_FALLBACK_SIGNAL";
 
@@ -210,7 +206,6 @@ fn child(scenario: &str, signal: libc::c_int) {
 
 #[test]
 fn fallback_behavior() {
-    let _errno_guard = ErrnoGuard::new();
     if let Ok(scenario) = std::env::var(SCENARIO) {
         let signal: i32 = std::env::var(SIGNAL).unwrap().parse().unwrap();
         child(&scenario, signal);

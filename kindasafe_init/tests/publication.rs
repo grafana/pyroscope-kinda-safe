@@ -88,7 +88,6 @@ unsafe extern "C" fn sigaction(
 
 #[test]
 fn installation_boundaries() {
-    let _errno_guard = ErrnoGuard::new();
     const CHILD_MODE: &str = "KINDASAFE_TEST_FAIL_SIGNAL";
     let Ok(fail_signal) = std::env::var(CHILD_MODE) else {
         // Each case needs fresh process-global signal and initialization state.
@@ -138,7 +137,6 @@ fn installation_boundaries() {
             let start = &start;
             let expected = &expected;
             scope.spawn(move || {
-                let _errno_guard = ErrnoGuard::new();
                 start.wait();
                 // SAFETY: previous_handler is a static SA_SIGINFO handler, and
                 // its installation finished before these threads were started.
@@ -156,7 +154,6 @@ fn installation_boundaries() {
     std::thread::scope(|scope| {
         for _ in 0..4 {
             scope.spawn(|| {
-                let _errno_guard = ErrnoGuard::new();
                 // SAFETY: The same fallback remains valid; only init() changes
                 // signal handling in this child after the initial setup.
                 assert_eq!(unsafe { kindasafe_init::init() }, expected);

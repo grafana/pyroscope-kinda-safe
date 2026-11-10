@@ -67,7 +67,6 @@ fn assert_thread_mask_restored() {
 
 #[test]
 fn sigprof_is_blocked_during_recovery_and_chained_handlers() {
-    let _errno_guard = ErrnoGuard::new();
     unsafe {
         for (signal, inherited) in [
             (libc::SIGSEGV, libc::SIGUSR1),

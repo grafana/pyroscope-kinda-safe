@@ -1,5 +1,4 @@
-// Keep libc calls in tests from changing the test thread's errno. This also
-// works inside a signal callback, where the interrupted thread needs its errno.
+// Preserve errno across signal callbacks and calls made by test wrappers.
 pub struct ErrnoGuard {
     ptr: *mut libc::c_int,
     previous: libc::c_int,
