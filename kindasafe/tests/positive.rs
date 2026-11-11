@@ -146,6 +146,7 @@ fn u32_unaligned() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u32_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -160,6 +161,7 @@ fn u32_sigsegv() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u32_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -174,6 +176,7 @@ fn u32_sigbus() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u8_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -188,6 +191,7 @@ fn u8_sigsegv() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u8_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -216,6 +220,7 @@ fn u8_values() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u8_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -235,6 +240,7 @@ fn u8_page_boundary() -> TestResult {
 }
 
 #[test]
+#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
 fn u32_unaligned_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
