@@ -29,6 +29,7 @@ pub type Ptr = u64;
 /// `at` must not refer to memory that Rust code in this program holds a live
 /// `&mut` or other exclusive borrow to, unless the address was derived from
 /// that borrow and exposed.
+#[inline(always)]
 pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     let res = arch::u64(at);
     if res.signal == 0 {
@@ -69,6 +70,7 @@ pub fn sanity_check() -> bool {
 /// `at` must not refer to memory that Rust code in this program holds a live
 /// `&mut` or other exclusive borrow to, unless the address was derived from
 /// that borrow and exposed.
+#[inline(always)]
 pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
     let res = arch::u32(at);
     if res.signal == 0 {
@@ -100,6 +102,7 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
 /// `at` must not refer to memory that Rust code in this program holds a live
 /// `&mut` or other exclusive borrow to, unless the address was derived from
 /// that borrow and exposed.
+#[inline(always)]
 pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
     let res = arch::u8(at);
     if res.signal == 0 {
