@@ -6,11 +6,12 @@ Uses naked assembly functions to read memory, with crash recovery via SIGSEGV/SI
 
 This is a `no_std` crate providing the core read primitives. Use [`kindasafe_init`](https://crates.io/crates/kindasafe_init) to install the required signal handlers.
 
-AddressSanitizer builds explicitly check the source range after successful `u64`
-and `slice` reads, since naked assembly bypasses compiler instrumentation. Poisoned
+AddressSanitizer builds explicitly check the source range after successful `u8`,
+`u32`, `u64`, and `slice` reads, since naked assembly bypasses compiler instrumentation. Poisoned
 reads produce an ASAN report; `ASAN_OPTIONS=halt_on_error=0` allows continuing after
-the report. Faulting reads still return `ReadMemError`. Normal builds contain no
-ASAN checks or runtime dependency.
+the report. Faulting reads also produce an ASAN report after recovery, then
+return `ReadMemError` when reporting is configured to continue. Normal builds
+contain no ASAN checks or runtime dependency.
 
 ## Usage
 
@@ -31,6 +32,12 @@ match value {
     Err(e) => println!("fault: signal {}", e.signal),
 }
 ```
+
+`kindasafe::u32(address)` reads exactly four bytes in one load and returns a
+`Result<u32, ReadMemError>`, with the same safety requirements as `u64`. This
+avoids a byte-wise copy when reading 32-bit fields such as Python instruction
+offsets. `kindasafe::u8(address)` reads exactly one byte and returns a
+`Result<u8, ReadMemError>`, suitable for fields such as Python frame owners.
 
 When reading from a SIGPROF sampling handler, check that SIGSEGV and SIGBUS
 are unblocked on that thread. The recovery handlers block SIGPROF while they

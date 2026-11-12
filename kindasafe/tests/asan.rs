@@ -49,6 +49,15 @@ fn probe() {
             "unaligned_word" => {
                 kindasafe::u64((at + 4) as u64).unwrap();
             }
+            "u8" => {
+                kindasafe::u8((at + 8) as u64).unwrap();
+            }
+            "u32" => {
+                kindasafe::u32((at + 8) as u64).unwrap();
+            }
+            "unaligned_u32" => {
+                kindasafe::u32((at + 6) as u64).unwrap();
+            }
             "slice" => {
                 kindasafe::slice(&mut [0; 24], at as u64).unwrap();
             }
@@ -65,11 +74,23 @@ fn probe() {
             }
             "valid" => {
                 assert_eq!(kindasafe::u64(at as u64).unwrap(), 7);
+                assert_eq!(kindasafe::u8(at as u64).unwrap(), 7);
+                // A one-byte read must not include the following poisoned byte.
+                assert_eq!(kindasafe::u8((at + 7) as u64).unwrap(), 0);
+                assert_eq!(kindasafe::u32(at as u64).unwrap(), 7);
+                // Poison starts immediately after these four readable bytes.
+                assert_eq!(kindasafe::u32((at + 4) as u64).unwrap(), 0);
                 let mut out = [0; 8];
                 kindasafe::slice(&mut out, at as u64).unwrap();
                 assert_eq!(out, 7u64.to_ne_bytes());
                 kindasafe::slice(&mut [], (at + 8) as u64).unwrap();
                 kindasafe::slice(&mut [], 0).unwrap();
+            }
+            "faulting_u8" => {
+                assert!(kindasafe::u8(0).is_err());
+            }
+            "faulting_u32" => {
+                assert!(kindasafe::u32(0).is_err());
             }
             "faulting_word" => {
                 assert!(kindasafe::u64(0).is_err());
@@ -110,6 +131,9 @@ fn reports_poisoned_reads() {
     for (case, size) in [
         ("word", 8),
         ("unaligned_word", 4),
+        ("u8", 1),
+        ("u32", 4),
+        ("unaligned_u32", 2),
         ("slice", 16),
         ("signal_word", 8),
     ] {
@@ -144,7 +168,12 @@ fn valid_and_empty_reads_do_not_report() {
 
 #[test]
 fn reports_faulting_reads_after_recovery() {
-    for case in ["faulting_word", "faulting_slice"] {
+    for (case, size) in [
+        ("faulting_u8", 1),
+        ("faulting_u32", 4),
+        ("faulting_word", 8),
+        ("faulting_slice", 8),
+    ] {
         let (_, stderr) = run_probe(case);
         assert_eq!(
             stderr.matches("ERROR: AddressSanitizer").count(),
@@ -152,7 +181,7 @@ fn reports_faulting_reads_after_recovery() {
             "{case}: {stderr}"
         );
         assert!(
-            stderr.contains("READ of size 8 at 0x000000000000 "),
+            stderr.contains(&format!("READ of size {size} at 0x000000000000 ")),
             "{case}: {stderr}"
         );
         assert!(
