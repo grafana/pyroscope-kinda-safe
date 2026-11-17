@@ -89,6 +89,13 @@ jobs:
             runner: ${{ github.repository_owner == 'grafana' && 'ubuntu-x64-small' || 'ubuntu-latest' }}
           - target: aarch64-unknown-linux-gnu
             runner: ${{ github.repository_owner == 'grafana' && 'ubuntu-arm64-large' || 'ubuntu-24.04-arm' }}
+        exclude:
+          # With nightly-2026-10-25 and -Zbuild-std, ARM64 debug ASan crashes
+          # during startup: compiler-builtins checks shadow memory before ASan initializes it.
+          - arch:
+              target: aarch64-unknown-linux-gnu
+              runner: ${{ github.repository_owner == 'grafana' && 'ubuntu-arm64-large' || 'ubuntu-24.04-arm' }}
+            profile: debug
     env:
       RUSTFLAGS: -Zsanitizer=address
       RUSTDOCFLAGS: -Zsanitizer=address
