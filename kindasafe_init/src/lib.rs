@@ -57,6 +57,12 @@ pub fn is_initialized() -> Option<Result<(), InitError>> {
 /// is accepted and called on every signal that is not recovered, not only the
 /// first.
 ///
+/// If SIGBUS installation fails, initialization attempts to restore the
+/// previous SIGSEGV handler before returning `InstallSignalHandlersFailed`.
+/// If restoration also fails, the SIGSEGV recovery handler remains installed
+/// while SIGBUS keeps its previous handler. Recovery must not be used after
+/// initialization fails. All results, including failures, are cached.
+///
 /// # Safety
 /// The caller must coordinate installation with other code that changes how
 /// SIGSEGV or SIGBUS are handled: reading the current setup and installing ours
@@ -98,8 +104,12 @@ fn init_locked() -> Result<(), InitError> {
     }
     install(libc::SIGSEGV, &old_segv, crash_handler, &FALLBACK_SIGSEGV)
         .map_err(|_| InitError::InstallSignalHandlersFailed)?;
-    install(libc::SIGBUS, &old_bus, crash_handler, &FALLBACK_SIGBUS)
-        .map_err(|_| InitError::InstallSignalHandlersFailed)?;
+    if install(libc::SIGBUS, &old_bus, crash_handler, &FALLBACK_SIGBUS).is_err() {
+        // Attempt to restore the full previous action, including its flags and mask.
+        // Keep the published fallback for handlers already running elsewhere.
+        let _ = unsafe { libc::sigaction(libc::SIGSEGV, &old_segv, std::ptr::null_mut()) };
+        return Err(InitError::InstallSignalHandlersFailed);
+    }
     Ok(())
 }
 
