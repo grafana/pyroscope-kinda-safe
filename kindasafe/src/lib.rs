@@ -1,7 +1,50 @@
 #![no_std]
 
-#[cfg(kindasafe_asan)]
-mod asan;
+//! Fault-recovering memory reads in normal builds and instrumented reads under ASan.
+//!
+//! # ASan builds
+//! Reads use compiler-instrumented Rust loads without assembly or fault recovery.
+//! Invalid accesses are left to ASan or fatal-signal handling. For valid reads,
+//! the source must contain initialized bytes, obey Rust's pointer and aliasing
+//! rules, and remain free of concurrent writes or deallocation during the read.
+//! Initialization and recovery sanity checks are unnecessary in this mode.
+//!
+//! ASan builds are for diagnosing unwinder bugs. An invalid read is a test
+//! failure, so we accept ASan's standard fatal reporting even inside SIGPROF.
+//! That reporting is not guaranteed async-signal-safe: it can deadlock if the
+//! interrupted thread holds a lock the reporter needs. Diagnostics are therefore
+//! best-effort, and fault tests use subprocess timeouts. This tradeoff is limited
+//! to ASan builds; normal builds recover faults without invoking ASan.
+
+#[cfg(not(kindasafe_asan))]
+use core::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(not(kindasafe_asan))]
+static RECOVERED_FAULTS: AtomicU64 = AtomicU64::new(0);
+
+/// Cumulative number of public reads that returned a recovered fault.
+///
+/// A failed slice counts once, regardless of how many bytes were copied.
+/// Sanity checks and signals forwarded to other handlers are excluded.
+/// The counter uses relaxed, lock-free atomics on supported targets, wraps on
+/// overflow, and has no reset operation. ASan builds always return zero.
+/// The embedding application can export this value through its metrics system.
+pub fn recovered_faults() -> u64 {
+    #[cfg(not(kindasafe_asan))]
+    {
+        RECOVERED_FAULTS.load(Ordering::Relaxed)
+    }
+    #[cfg(kindasafe_asan)]
+    {
+        0
+    }
+}
+
+#[cfg(not(kindasafe_asan))]
+fn recovered_error(signal: u64) -> ReadMemError {
+    RECOVERED_FAULTS.fetch_add(1, Ordering::Relaxed);
+    ReadMemError { signal }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct ReadMemError {
@@ -13,10 +56,15 @@ pub type Ptr = u64;
 /// Reads a `u64` from `at`, returning `Err` instead of crashing when the
 /// address is not readable.
 ///
-/// The load is a single aligned 8-byte access when `at` is aligned. The bytes
-/// are returned as-is, whatever the memory contains.
+/// In normal builds, reads eight bytes using a single load instruction. The
+/// address may be unaligned. The bytes are returned as-is.
+///
+/// In ASan builds, accesses use compiler instrumentation and do not recover.
 ///
 /// # Safety
+/// Under ASan, the [crate-level source-memory requirements](crate) apply.
+/// The following recovery and concurrent-access rules apply to normal builds.
+///
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
@@ -31,33 +79,49 @@ pub type Ptr = u64;
 /// that borrow and exposed.
 #[inline(always)]
 pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
-    let res = arch::u64(at);
-    if res.signal == 0 {
-        #[cfg(kindasafe_asan)]
-        asan::report_poisoned_load(at, core::mem::size_of::<u64>());
-        Ok(res.value)
-    } else {
-        #[cfg(kindasafe_asan)]
-        asan::report_faulting_load(at, core::mem::size_of::<u64>());
-        Err(ReadMemError { signal: res.signal })
+    #[cfg(kindasafe_asan)]
+    {
+        // SAFETY: the caller satisfies the ASan source-memory requirements.
+        Ok(unsafe { (at as *const u64).read_unaligned() })
+    }
+    #[cfg(not(kindasafe_asan))]
+    {
+        let res = arch::u64(at);
+        if res.signal == 0 {
+            Ok(res.value)
+        } else {
+            Err(recovered_error(res.signal))
+        }
     }
 }
 
-/// Checks recovery using address 239 without reporting this deliberate
-/// fault to ASAN. The raw load stays private; ordinary reads use [`u64`].
+/// Checks recovery using address 239 without incrementing [`recovered_faults`].
 ///
-/// The recovery handlers must already be installed and SIGSEGV/SIGBUS unblocked.
+/// In normal builds the recovery handlers must already be installed and
+/// SIGSEGV/SIGBUS unblocked. ASan builds return `true` without attempting a read.
 pub fn sanity_check() -> bool {
-    arch::u64(239).signal != 0
+    #[cfg(not(kindasafe_asan))]
+    {
+        arch::u64(239).signal != 0
+    }
+    #[cfg(kindasafe_asan)]
+    {
+        true
+    }
 }
 
 /// Reads a `u32` from `at`, returning `Err` instead of crashing when the
 /// address is not readable.
 ///
-/// The load is a single aligned 4-byte access when `at` is aligned. The bytes
-/// are returned as-is, whatever the memory contains.
+/// In normal builds, reads four bytes using a single load instruction. The
+/// address may be unaligned. The bytes are returned as-is.
+///
+/// In ASan builds, accesses use compiler instrumentation and do not recover.
 ///
 /// # Safety
+/// Under ASan, the [crate-level source-memory requirements](crate) apply.
+/// The following recovery and concurrent-access rules apply to normal builds.
+///
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
@@ -72,15 +136,19 @@ pub fn sanity_check() -> bool {
 /// that borrow and exposed.
 #[inline(always)]
 pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
-    let res = arch::u32(at);
-    if res.signal == 0 {
-        #[cfg(kindasafe_asan)]
-        asan::report_poisoned_load(at, core::mem::size_of::<u32>());
-        Ok(res.value as u32)
-    } else {
-        #[cfg(kindasafe_asan)]
-        asan::report_faulting_load(at, core::mem::size_of::<u32>());
-        Err(ReadMemError { signal: res.signal })
+    #[cfg(kindasafe_asan)]
+    {
+        // SAFETY: the caller satisfies the ASan source-memory requirements.
+        Ok(unsafe { (at as *const u32).read_unaligned() })
+    }
+    #[cfg(not(kindasafe_asan))]
+    {
+        let res = arch::u32(at);
+        if res.signal == 0 {
+            Ok(res.value as u32)
+        } else {
+            Err(recovered_error(res.signal))
+        }
     }
 }
 
@@ -89,7 +157,12 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
 ///
 /// The load reads exactly one byte, returned as-is, whatever the memory contains.
 ///
+/// In ASan builds, accesses use compiler instrumentation and do not recover.
+///
 /// # Safety
+/// Under ASan, the [crate-level source-memory requirements](crate) apply.
+/// The following recovery and concurrent-access rules apply to normal builds.
+///
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
@@ -104,15 +177,19 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
 /// that borrow and exposed.
 #[inline(always)]
 pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
-    let res = arch::u8(at);
-    if res.signal == 0 {
-        #[cfg(kindasafe_asan)]
-        asan::report_poisoned_load(at, core::mem::size_of::<u8>());
-        Ok(res.value as u8)
-    } else {
-        #[cfg(kindasafe_asan)]
-        asan::report_faulting_load(at, core::mem::size_of::<u8>());
-        Err(ReadMemError { signal: res.signal })
+    #[cfg(kindasafe_asan)]
+    {
+        // SAFETY: the caller satisfies the ASan source-memory requirements.
+        Ok(unsafe { (at as *const u8).read_unaligned() })
+    }
+    #[cfg(not(kindasafe_asan))]
+    {
+        let res = arch::u8(at);
+        if res.signal == 0 {
+            Ok(res.value as u8)
+        } else {
+            Err(recovered_error(res.signal))
+        }
     }
 }
 
@@ -123,7 +200,12 @@ pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
 /// so writes into it are always in bounds. On `Err` the contents of `buf` are
 /// unspecified.
 ///
+/// In ASan builds, accesses use compiler instrumentation and do not recover.
+///
 /// # Safety
+/// Under ASan, the [crate-level source-memory requirements](crate) apply.
+/// The following recovery and concurrent-access rules apply to normal builds.
+///
 /// `kindasafe_init::init()` must have returned `Ok` in this process and the
 /// SIGSEGV/SIGBUS handlers it installed must still be in place. Otherwise a
 /// fault terminates the process instead of returning `Err`.
@@ -137,20 +219,38 @@ pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
 /// holds a live `&mut` or other exclusive borrow to, unless the address was
 /// derived from that borrow and exposed.
 pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
-    let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
-    if res.signal == 0 {
-        #[cfg(kindasafe_asan)]
-        asan::report_poisoned_load(at, buf.len());
+    #[cfg(kindasafe_asan)]
+    {
+        // An empty copy must not access even a null or poisoned source.
+        let src = at as *const u8;
+        let dst = buf.as_mut_ptr();
+        for i in 0..buf.len() {
+            // SAFETY: the caller provides a valid source; dst is within buf.
+            unsafe { dst.add(i).write(src.add(i).read()) };
+        }
         Ok(())
-    } else {
-        #[cfg(kindasafe_asan)]
-        asan::report_faulting_load(at, buf.len());
-        Err(ReadMemError { signal: res.signal })
+    }
+    #[cfg(not(kindasafe_asan))]
+    {
+        let res = arch::slice(buf.as_mut_ptr(), at, buf.len() as u64);
+        if res.signal == 0 {
+            Ok(())
+        } else {
+            Err(recovered_error(res.signal))
+        }
     }
 }
 
+/// Recovery locations, or an empty table in ASan builds.
 pub fn crash_points() -> CrashPoints {
-    arch::crash_points()
+    #[cfg(not(kindasafe_asan))]
+    {
+        arch::crash_points()
+    }
+    #[cfg(kindasafe_asan)]
+    {
+        CrashPoints { crash_points: [] }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -159,7 +259,10 @@ pub struct CrashPoint {
     pub signal_reg: Reg,
     pub skip: usize,
 }
+#[cfg(not(kindasafe_asan))]
 const CRASH_POINTS_COUNT: usize = 4;
+#[cfg(kindasafe_asan)]
+const CRASH_POINTS_COUNT: usize = 0;
 
 #[derive(Copy, Clone)]
 pub struct CrashPoints {
@@ -180,7 +283,7 @@ pub enum Reg {
     X1,
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "x86_64"))]
 mod arch {
 
     #[repr(C)]
@@ -263,7 +366,7 @@ mod arch {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "aarch64"))]
 mod arch {
 
     #[repr(C)]

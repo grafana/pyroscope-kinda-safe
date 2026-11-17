@@ -33,9 +33,9 @@ impl From<kindasafe::ReadMemError> for TestError {
 
 // On macOS, accessing a PROT_NONE mmap page delivers SIGBUS;
 // on Linux it delivers SIGSEGV.
-#[cfg(target_os = "linux")]
+#[cfg(all(not(kindasafe_asan), target_os = "linux"))]
 const PROT_NONE_SIGNAL: u64 = libc::SIGSEGV as u64;
-#[cfg(target_os = "macos")]
+#[cfg(all(not(kindasafe_asan), target_os = "macos"))]
 const PROT_NONE_SIGNAL: u64 = libc::SIGBUS as u64;
 
 #[test]
@@ -69,7 +69,7 @@ fn u64_unaligned() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u64_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -84,7 +84,7 @@ fn u64_sigsegv() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u64_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -99,7 +99,7 @@ fn u64_sigbus() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u64_unaligned_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -146,7 +146,7 @@ fn u32_unaligned() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u32_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -161,7 +161,7 @@ fn u32_sigsegv() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u32_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -176,7 +176,7 @@ fn u32_sigbus() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u8_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -191,7 +191,7 @@ fn u8_sigsegv() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u8_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -220,7 +220,7 @@ fn u8_values() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u8_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -240,7 +240,7 @@ fn u8_page_boundary() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn u32_unaligned_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -305,7 +305,7 @@ fn slice_preserves_destination_bounds() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn vec_sigsegv() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigsegv(|p| {
@@ -321,7 +321,7 @@ fn vec_sigsegv() -> TestResult {
 }
 
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn vec_sigbus() -> TestResult {
     unsafe { kindasafe_init::init() }?;
     trigger_sigbus(|p| {
@@ -337,7 +337,7 @@ fn vec_sigbus() -> TestResult {
     Ok(())
 }
 #[test]
-#[cfg_attr(kindasafe_asan, ignore = "faulting reads are reported in ASAN tests")]
+#[cfg(not(kindasafe_asan))]
 fn vec_sigsegv_page_boundary() -> TestResult {
     unsafe { kindasafe_init::init() }?;
 
@@ -362,29 +362,30 @@ fn vec_sigsegv_page_boundary() -> TestResult {
     Ok(())
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "x86_64"))]
 const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
     (kindasafe::Reg::Rdx, &[0x48, 0x8B, 0x07]), // mov rax, [rdi]
     (kindasafe::Reg::Rdx, &[0x8B, 0x07]),       // mov eax, [rdi]
     (kindasafe::Reg::Rdx, &[0x0F, 0xB6, 0x07]), // movzx eax, byte ptr [rdi]
     (kindasafe::Reg::Rax, &[0xF3, 0xA4]),       // rep movsb
 ];
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "x86_64"))]
 const RET: &[u8] = &[0xC3];
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "aarch64"))]
 const FAULT_INSTRUCTIONS: &[(kindasafe::Reg, &[u8])] = &[
     (kindasafe::Reg::X1, &0xF9400000u32.to_le_bytes()), // ldr x0, [x0]
     (kindasafe::Reg::X1, &0xB9400000u32.to_le_bytes()), // ldr w0, [x0]
     (kindasafe::Reg::X1, &0x39400000u32.to_le_bytes()), // ldrb w0, [x0]
     (kindasafe::Reg::X0, &0x38401423u32.to_le_bytes()), // ldrb w3, [x1], #1
 ];
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(not(kindasafe_asan), target_arch = "aarch64"))]
 const RET: &[u8] = &0xD65F03C0u32.to_le_bytes();
 
 // The crash point offsets are hand-maintained; a stale one makes the signal
 // handler fall through to the fallback instead of recovering the read.
 #[test]
+#[cfg(not(kindasafe_asan))]
 fn crash_points_point_at_faulting_instruction_and_skip_to_ret() {
     let points = kindasafe::crash_points().crash_points;
     assert_eq!(points.len(), FAULT_INSTRUCTIONS.len());
@@ -409,8 +410,9 @@ fn crash_points_point_at_faulting_instruction_and_skip_to_ret() {
 // The destination is 2^32 + 1 bytes of address space backed by one 64 MiB
 // file mapped repeatedly, so the copy commits 64 MiB rather than 4 GiB.
 // Byte 2^32 aliases byte 0. The copy is observed through raw pointers because
-// the aliasing breaks the uniqueness the slice type promises.
-#[cfg(target_arch = "x86_64")]
+// the aliasing breaks the uniqueness the slice type promises. This assembly
+// regression test is excluded from the Rust-load ASan backend.
+#[cfg(all(not(kindasafe_asan), target_arch = "x86_64"))]
 #[test]
 fn slice_copies_more_than_4gib() -> TestResult {
     unsafe { kindasafe_init::init() }?;
@@ -479,12 +481,14 @@ fn slice_copies_more_than_4gib() -> TestResult {
     Ok(())
 }
 
+#[cfg(not(kindasafe_asan))]
 fn page_size() -> usize {
     let ps = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     assert!(ps > 0, "sysconf(_SC_PAGESIZE) failed");
     ps as usize
 }
 
+#[cfg(not(kindasafe_asan))]
 fn trigger_sigsegv_page_boundary<F>(mut cb: F)
 where
     F: FnMut(Ptr, usize),
@@ -516,6 +520,7 @@ where
     }
 }
 
+#[cfg(not(kindasafe_asan))]
 pub fn trigger_sigbus<F>(mut cb: F)
 where
     F: FnMut(u64),
@@ -545,6 +550,7 @@ where
     };
 }
 
+#[cfg(not(kindasafe_asan))]
 pub fn trigger_sigsegv<F>(mut cb: F)
 where
     F: FnMut(u64),

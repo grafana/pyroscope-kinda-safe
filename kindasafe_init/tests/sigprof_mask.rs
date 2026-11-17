@@ -1,3 +1,5 @@
+#![cfg(not(kindasafe_asan))]
+
 // Each integration test binary has its own signal handlers and init state.
 // Check both installed masks and the mask seen by a directly chained handler.
 

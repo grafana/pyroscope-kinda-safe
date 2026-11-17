@@ -1,3 +1,5 @@
+#![cfg(not(kindasafe_asan))]
+
 // Each scenario installs a previous handler for SIGSEGV and SIGBUS, runs
 // init(), then delivers a signal that no crash point recovers from. The
 // previous handler must then be honored: ignored signals return, SIG_DFL
@@ -209,6 +211,7 @@ fn fallback_behavior() {
     if let Ok(scenario) = std::env::var(SCENARIO) {
         let signal: i32 = std::env::var(SIGNAL).unwrap().parse().unwrap();
         child(&scenario, signal);
+        assert_eq!(kindasafe::recovered_faults(), 0);
         return;
     }
     for signal in [libc::SIGSEGV, libc::SIGBUS] {

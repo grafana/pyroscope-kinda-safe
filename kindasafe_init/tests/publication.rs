@@ -1,3 +1,4 @@
+#![cfg(not(kindasafe_asan))]
 // On Linux, this test's sigaction function intercepts calls to libc's sigaction.
 // It calls the real function, then delivers signals before returning to the
 // initialization code. This checks that the fallback is ready as soon as the
@@ -230,4 +231,5 @@ fn installation_boundaries() {
     if fail_signal == 0 {
         assert_eq!(kindasafe_init::sanity_check(), Ok(()));
     }
+    assert_eq!(kindasafe::recovered_faults(), 0);
 }

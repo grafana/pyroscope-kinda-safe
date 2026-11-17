@@ -2,7 +2,13 @@
 
 Signal handler initialization for the [kindasafe](https://crates.io/crates/kindasafe) signal-safe memory reading library.
 
-Installs SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover from memory access faults instead of crashing. Preserves any previously installed signal handlers as fallbacks.
+In normal builds, installs SIGSEGV and SIGBUS signal handlers that enable `kindasafe` to recover from memory access faults instead of crashing. Preserves any previously installed signal handlers as fallbacks.
+
+In ASan builds, `init()` caches success without inspecting or changing signal
+handlers, leaving ASan's handlers in place. `is_initialized()` returns `None`
+before initialization and `Some(Ok(()))` afterward. `sanity_check()` returns
+`Ok(())` without attempting a read, even before initialization. The installation
+and recovery requirements below apply to normal builds.
 
 ## Usage
 

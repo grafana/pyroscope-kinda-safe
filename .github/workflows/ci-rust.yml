@@ -76,6 +76,44 @@ jobs:
       - name: Run tests
         run: cargo test --locked
 
+  test-asan:
+    name: ASan (${{ matrix.arch.target }}, ${{ matrix.profile }})
+    runs-on: ${{ matrix.arch.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [debug, release]
+        arch:
+          - target: x86_64-unknown-linux-gnu
+            runner: ${{ github.repository_owner == 'grafana' && 'ubuntu-x64-small' || 'ubuntu-latest' }}
+          - target: aarch64-unknown-linux-gnu
+            runner: ${{ github.repository_owner == 'grafana' && 'ubuntu-arm64-large' || 'ubuntu-24.04-arm' }}
+    env:
+      RUSTFLAGS: -Zsanitizer=address
+      RUSTDOCFLAGS: -Zsanitizer=address
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: nightly-2026-10-25
+          components: rust-src
+          targets: ${{ matrix.arch.target }}
+
+      - name: Run instrumented tests
+        env:
+          PROFILE: ${{ matrix.profile }}
+          TARGET: ${{ matrix.arch.target }}
+        run: |
+          profile_args=()
+          if [[ "$PROFILE" == release ]]; then
+            profile_args+=(--release)
+          fi
+          cargo test --locked --workspace -Zbuild-std --target "$TARGET" "${profile_args[@]}"
+
   test-macos:
     name: cargo test (${{ matrix.target }})
     runs-on: ${{ github.repository_owner == 'grafana' && 'macos-15' || 'macos-latest' }}

@@ -6,12 +6,34 @@ Uses naked assembly functions to read memory, with crash recovery via SIGSEGV/SI
 
 This is a `no_std` crate providing the core read primitives. Use [`kindasafe_init`](https://crates.io/crates/kindasafe_init) to install the required signal handlers.
 
-AddressSanitizer builds explicitly check the source range after successful `u8`,
-`u32`, `u64`, and `slice` reads, since naked assembly bypasses compiler instrumentation. Poisoned
-reads produce an ASAN report and terminate the process, even with
-`ASAN_OPTIONS=halt_on_error=0`. Faulting reads also report and terminate after
-recovery instead of returning `ReadMemError`. Normal builds contain no ASAN
-checks or runtime dependency.
+Normal builds recover faults to keep the target application running when the
+unwinder encounters a bug. `kindasafe::recovered_faults() -> u64` exposes a
+cumulative, process-local count of public reads returning `ReadMemError`. Each
+failed slice counts once, including partially completed copies. Successful
+reads, deliberate sanity checks, and signals forwarded to previous handlers do
+not increment it. The lock-free counter uses relaxed atomics, wraps on overflow,
+and has no reset API. Export its value through the embedding profiler's metrics
+system; no exporter runs in the read path.
+
+AddressSanitizer builds use ordinary compiler-instrumented Rust loads and
+forward byte copies instead of assembly. They install no recovery handlers,
+perform no manual poison checks, and make no manual ASan reporting calls.
+Successful reads return `Ok`; invalid accesses are left to ASan or fatal-signal
+handling. Both sanity checks skip their deliberate invalid read, and
+`recovered_faults()` always returns zero. Empty slices never access the source.
+
+ASan source memory must contain initialized bytes and satisfy Rust's pointer and
+aliasing rules. No other thread may write or free those bytes during inspection.
+These requirements are stronger than the normal assembly backend's concurrent
+read contract. ASan does not make undefined behavior valid or guarantee that
+every invalid access is detected.
+
+ASan builds are for diagnosing unwinder bugs. An invalid read is a test failure,
+so we accept ASan's standard fatal reporting even inside SIGPROF. That reporting
+is not guaranteed async-signal-safe: it can deadlock if the interrupted thread
+holds a lock the reporter needs. Diagnostics are therefore best-effort, and
+fault tests use subprocess timeouts. This tradeoff is limited to ASan builds;
+normal builds recover faults without invoking ASan.
 
 ## Usage
 
@@ -39,7 +61,7 @@ avoids a byte-wise copy when reading 32-bit fields such as Python instruction
 offsets. `kindasafe::u8(address)` reads exactly one byte and returns a
 `Result<u8, ReadMemError>`, suitable for fields such as Python frame owners.
 
-When reading from a SIGPROF sampling handler, check that SIGSEGV and SIGBUS
+In normal builds, when reading from a SIGPROF sampling handler, check that SIGSEGV and SIGBUS
 are unblocked on that thread. The recovery handlers block SIGPROF while they
 run, but other code may still block recovery signals before sampling starts.
 
