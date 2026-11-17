@@ -3,10 +3,13 @@
 //! Fault-recovering memory reads in normal builds and instrumented reads under ASan.
 //!
 //! # ASan builds
-//! Reads use compiler-instrumented Rust loads without assembly or fault recovery.
-//! Invalid accesses are left to ASan or fatal-signal handling. For valid reads,
-//! the source must contain initialized bytes, obey Rust's pointer and aliasing
-//! rules, and remain free of concurrent writes or deallocation during the read.
+//! Reads use compiler-instrumented volatile loads without assembly or fault
+//! recovery. A volatile load may target memory outside any Rust allocation and
+//! is never removed, so the optimizer cannot delete an invalid read or replace
+//! it with an invented value before ASan sees it. ASan reports a poisoned source,
+//! and its fatal-signal handling reports an unmapped one. For valid reads, the
+//! source must contain initialized bytes, obey Rust's pointer and aliasing rules,
+//! and remain free of concurrent writes or deallocation during the read.
 //! Initialization and recovery sanity checks are unnecessary in this mode.
 //!
 //! ASan builds are for diagnosing unwinder bugs. An invalid read is a test
@@ -53,6 +56,15 @@ pub struct ReadMemError {
 
 pub type Ptr = u64;
 
+/// # Safety
+/// The caller must satisfy the [crate-level source-memory requirements](crate).
+#[cfg(kindasafe_asan)]
+#[inline(always)]
+unsafe fn asan_read<const N: usize>(at: Ptr) -> [u8; N] {
+    // A byte array has no alignment requirement, so `at` may be unaligned.
+    unsafe { (at as *const [u8; N]).read_volatile() }
+}
+
 /// Reads a `u64` from `at`, returning `Err` instead of crashing when the
 /// address is not readable.
 ///
@@ -82,7 +94,7 @@ pub unsafe fn u64(at: Ptr) -> Result<Ptr, ReadMemError> {
     #[cfg(kindasafe_asan)]
     {
         // SAFETY: the caller satisfies the ASan source-memory requirements.
-        Ok(unsafe { (at as *const u64).read_unaligned() })
+        Ok(u64::from_ne_bytes(unsafe { asan_read(at) }))
     }
     #[cfg(not(kindasafe_asan))]
     {
@@ -139,7 +151,7 @@ pub unsafe fn u32(at: Ptr) -> Result<u32, ReadMemError> {
     #[cfg(kindasafe_asan)]
     {
         // SAFETY: the caller satisfies the ASan source-memory requirements.
-        Ok(unsafe { (at as *const u32).read_unaligned() })
+        Ok(u32::from_ne_bytes(unsafe { asan_read(at) }))
     }
     #[cfg(not(kindasafe_asan))]
     {
@@ -180,7 +192,7 @@ pub unsafe fn u8(at: Ptr) -> Result<u8, ReadMemError> {
     #[cfg(kindasafe_asan)]
     {
         // SAFETY: the caller satisfies the ASan source-memory requirements.
-        Ok(unsafe { (at as *const u8).read_unaligned() })
+        Ok(u8::from_ne_bytes(unsafe { asan_read(at) }))
     }
     #[cfg(not(kindasafe_asan))]
     {
@@ -222,11 +234,9 @@ pub unsafe fn slice(buf: &mut [u8], at: Ptr) -> Result<(), ReadMemError> {
     #[cfg(kindasafe_asan)]
     {
         // An empty copy must not access even a null or poisoned source.
-        let src = at as *const u8;
-        let dst = buf.as_mut_ptr();
-        for i in 0..buf.len() {
-            // SAFETY: the caller provides a valid source; dst is within buf.
-            unsafe { dst.add(i).write(src.add(i).read()) };
+        for (i, byte) in buf.iter_mut().enumerate() {
+            // SAFETY: the caller satisfies the ASan source-memory requirements.
+            *byte = u8::from_ne_bytes(unsafe { asan_read(at.wrapping_add(i as u64)) });
         }
         Ok(())
     }

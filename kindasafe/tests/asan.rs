@@ -127,6 +127,23 @@ fn probe() {
                 kindasafe::slice(&mut out, fault).unwrap();
                 black_box(out);
             }
+            // Optimized builds may delete an unused non-volatile read.
+            "faulting_unused_u8" => {
+                let _ = kindasafe::u8(fault);
+            }
+            "faulting_unused_u32" => {
+                let _ = kindasafe::u32(fault);
+            }
+            "faulting_unused_word" => {
+                let _ = kindasafe::u64(fault);
+            }
+            "faulting_unused_slice" => {
+                let _ = kindasafe::slice(&mut [0; 8], fault);
+            }
+            // The compiler sees the null address and may replace a non-volatile read.
+            "null_word" => {
+                black_box(kindasafe::u64(0).unwrap());
+            }
             _ => panic!("unknown probe {case}"),
         }
         __asan_unpoison_memory_region(bad, 8);
@@ -224,6 +241,11 @@ fn faults_reach_asan_without_recovery() {
         "faulting_slice",
         "faulting_signal_word",
         "unmapped_word",
+        "faulting_unused_u8",
+        "faulting_unused_u32",
+        "faulting_unused_word",
+        "faulting_unused_slice",
+        "null_word",
     ] {
         let stderr = run_probe(case, false);
         assert!(

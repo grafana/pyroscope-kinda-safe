@@ -15,12 +15,15 @@ not increment it. The lock-free counter uses relaxed atomics, wraps on overflow,
 and has no reset API. Export its value through the embedding profiler's metrics
 system; no exporter runs in the read path.
 
-AddressSanitizer builds use ordinary compiler-instrumented Rust loads and
-forward byte copies instead of assembly. They install no recovery handlers,
-perform no manual poison checks, and make no manual ASan reporting calls.
-Successful reads return `Ok`; invalid accesses are left to ASan or fatal-signal
-handling. Both sanity checks skip their deliberate invalid read, and
-`recovered_faults()` always returns zero. Empty slices never access the source.
+AddressSanitizer builds use compiler-instrumented volatile loads and forward
+byte copies instead of assembly. They install no recovery handlers, perform no
+manual poison checks, and make no manual ASan reporting calls. Successful reads
+return `Ok`; invalid accesses are left to ASan or fatal-signal handling. A
+volatile load may target memory outside any Rust allocation and is never
+removed, so an optimized build cannot delete an invalid read or replace it with
+an invented value before ASan sees it. Both sanity checks skip their deliberate
+invalid read, and `recovered_faults()` always returns zero. Empty slices never
+access the source.
 
 ASan source memory must contain initialized bytes and satisfy Rust's pointer and
 aliasing rules. No other thread may write or free those bytes during inspection.

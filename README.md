@@ -14,7 +14,7 @@ bugs. `kindasafe::recovered_faults()` exposes their cumulative count for export
 through the profiler's metrics system. Deliberate sanity checks are excluded.
 Successful reads still load memory directly without syscalls.
 
-ASan builds use compiler-instrumented Rust loads without assembly or recovery.
+ASan builds use compiler-instrumented volatile loads without assembly or recovery.
 Initialization leaves signal handlers untouched, sanity checks skip their
 invalid reads, and the fault counter stays zero. Invalid accesses are left to
 ASan or fatal-signal handling so recovery cannot hide unwinder bugs. No manual
