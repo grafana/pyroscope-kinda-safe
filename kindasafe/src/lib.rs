@@ -18,6 +18,14 @@
 //! interrupted thread holds a lock the reporter needs. Diagnostics are therefore
 //! best-effort, and fault tests use subprocess timeouts. This tradeoff is limited
 //! to ASan builds; normal builds recover faults without invoking ASan.
+//!
+//! Reports are fatal only with ASan's default `handle_segv=1`, `handle_sigbus=1`
+//! and `halt_on_error=1`. With `handle_segv=0` or `handle_sigbus=0`, an unmapped
+//! read takes the previous handler or the default action, which usually kills
+//! the process without a report. With `halt_on_error=0` in a
+//! `-Zsanitizer-recover=address` build, the report for a poisoned read returns,
+//! so the reporter runs to completion inside SIGPROF and the read returns the
+//! poisoned bytes.
 
 #[cfg(not(kindasafe_asan))]
 use core::sync::atomic::{AtomicU64, Ordering};

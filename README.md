@@ -24,8 +24,11 @@ ASan reads require initialized source bytes, valid Rust pointer/aliasing rules,
 and no concurrent writes or deallocation during inspection. We accept ASan's
 standard fatal reporting inside SIGPROF because these builds diagnose unwinder
 bugs and invalid reads are test failures. Reporting is best-effort and can
-deadlock; fault tests use subprocess timeouts. See the
-[kindasafe documentation](kindasafe/) for the read contracts and reporting limits.
+deadlock; fault tests use subprocess timeouts. Keep ASan's default
+`handle_segv=1`, `handle_sigbus=1` and `halt_on_error=1`: otherwise an unmapped
+read can kill the process without a report, or a report can return inside
+SIGPROF. See the [kindasafe documentation](kindasafe/) for the read contracts
+and reporting limits.
 
 ## License
 

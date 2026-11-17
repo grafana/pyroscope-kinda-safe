@@ -38,6 +38,14 @@ holds a lock the reporter needs. Diagnostics are therefore best-effort, and
 fault tests use subprocess timeouts. This tradeoff is limited to ASan builds;
 normal builds recover faults without invoking ASan.
 
+Keep ASan's default `handle_segv=1`, `handle_sigbus=1` and `halt_on_error=1`
+in `ASAN_OPTIONS`. Without its SIGSEGV and SIGBUS handlers, ASan does not see
+faults: an unmapped read goes to the previous handler or the default action,
+which usually kills the process without a report. With `halt_on_error=0` in a
+`-Zsanitizer-recover=address` build, the report for a poisoned read returns, so
+the reporter runs to completion inside SIGPROF and the read returns the
+poisoned bytes.
+
 ## Usage
 
 ```rust
