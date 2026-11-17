@@ -8,10 +8,10 @@ This is a `no_std` crate providing the core read primitives. Use [`kindasafe_ini
 
 AddressSanitizer builds explicitly check the source range after successful `u8`,
 `u32`, `u64`, and `slice` reads, since naked assembly bypasses compiler instrumentation. Poisoned
-reads produce an ASAN report; `ASAN_OPTIONS=halt_on_error=0` allows continuing after
-the report. Faulting reads also produce an ASAN report after recovery, then
-return `ReadMemError` when reporting is configured to continue. Normal builds
-contain no ASAN checks or runtime dependency.
+reads produce an ASAN report and terminate the process, even with
+`ASAN_OPTIONS=halt_on_error=0`. Faulting reads also report and terminate after
+recovery instead of returning `ReadMemError`. Normal builds contain no ASAN
+checks or runtime dependency.
 
 ## Usage
 

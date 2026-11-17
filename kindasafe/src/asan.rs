@@ -1,6 +1,6 @@
 unsafe extern "C" {
     fn __asan_region_is_poisoned(addr: *const u8, len: usize) -> *const u8;
-    fn __asan_report_load_n_noabort(addr: *const u8, len: usize);
+    fn __asan_report_load_n(addr: *const u8, len: usize) -> !;
 }
 
 /// Naked assembly bypasses compiler instrumentation. Check readable source
@@ -17,7 +17,7 @@ pub fn report_poisoned_load(at: u64, len: usize) {
             // Start at the first poisoned byte, including for unaligned loads
             // and ranges whose endpoints are both unpoisoned.
             let remaining = len - (bad as usize - at as usize);
-            __asan_report_load_n_noabort(bad, remaining);
+            __asan_report_load_n(bad, remaining);
         }
     }
 }
@@ -30,5 +30,5 @@ pub fn report_faulting_load(at: u64, len: usize) {
         return;
     }
     // SAFETY: this ASAN entry point reports the address without loading from it.
-    unsafe { __asan_report_load_n_noabort(at as *const u8, len) }
+    unsafe { __asan_report_load_n(at as *const u8, len) }
 }

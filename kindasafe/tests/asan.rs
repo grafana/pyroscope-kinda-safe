@@ -106,10 +106,11 @@ fn probe() {
     println!("probe completed");
 }
 
-fn run_probe(case: &str) -> (String, String) {
+fn run_probe(case: &str, expect_success: bool) -> (String, String) {
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "probe", "--nocapture"])
         .env(PROBE, case)
+        // Aborting reports must terminate even when recovery is enabled.
         .env(
             "ASAN_OPTIONS",
             "detect_leaks=0:halt_on_error=0:handle_segv=0:handle_sigbus=0",
@@ -118,9 +119,14 @@ fn run_probe(case: &str) -> (String, String) {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(output.status.success(), "{case}: {stdout}\n{stderr}");
-    assert!(
+    assert_eq!(
+        output.status.success(),
+        expect_success,
+        "{case}: {stdout}\n{stderr}"
+    );
+    assert_eq!(
         stdout.contains("probe completed"),
+        expect_success,
         "{case}: {stdout}\n{stderr}"
     );
     (stdout, stderr)
@@ -137,7 +143,7 @@ fn reports_poisoned_reads() {
         ("slice", 16),
         ("signal_word", 8),
     ] {
-        let (stdout, stderr) = run_probe(case);
+        let (stdout, stderr) = run_probe(case, false);
         let addr = stdout
             .lines()
             .find_map(|line| line.strip_prefix("bad "))
@@ -162,7 +168,7 @@ fn reports_poisoned_reads() {
 
 #[test]
 fn valid_and_empty_reads_do_not_report() {
-    let (_, stderr) = run_probe("valid");
+    let (_, stderr) = run_probe("valid", true);
     assert!(!stderr.contains("AddressSanitizer"), "{stderr}");
 }
 
@@ -174,7 +180,7 @@ fn reports_faulting_reads_after_recovery() {
         ("faulting_word", 8),
         ("faulting_slice", 8),
     ] {
-        let (_, stderr) = run_probe(case);
+        let (_, stderr) = run_probe(case, false);
         assert_eq!(
             stderr.matches("ERROR: AddressSanitizer").count(),
             1,

@@ -9,8 +9,9 @@ This workspace contains two crates:
 
 Initialize recovery before unwinding, keep its SIGSEGV/SIGBUS handlers installed,
 and leave both signals unblocked on the reading thread. Reads report faulting
-addresses in ASAN builds after recovery returns. The deliberate `sanity_check`
-reads address 239 with a private raw load, so it does not produce an ASAN report.
+addresses in ASAN builds after recovery returns, then terminate the process.
+The deliberate `sanity_check` reads address 239 with a private raw load, so it
+does not produce an ASAN report.
 Successful reads still load memory directly without syscalls.
 
 ## License
