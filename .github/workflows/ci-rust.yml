@@ -106,7 +106,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
-          toolchain: nightly-2026-10-25
+          toolchain: nightly-2026-11-25
           components: rust-src
           targets: ${{ matrix.arch.target }}
 
